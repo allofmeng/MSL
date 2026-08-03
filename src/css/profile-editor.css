@@ -177,6 +177,54 @@
     padding: 0 22px 22px;
 }
 
+/* Scrollbars in the editor's scrolling areas. The app-wide default is 10px,
+   which on a tablet reads as a hairline — the columns look like they do not
+   scroll at all. Wide lane, accent thumb, permanent track so the affordance is
+   visible before anyone touches it. This file loads after dark-mode.css, so it
+   wins over that file's 10px rule at equal specificity in both themes.
+   scrollbar-gutter keeps the lane reserved, so content does not shift when a
+   panel grows past its box. */
+.pe-scroll,
+.pe-dialog-rows,
+.pe-notes {
+    scrollbar-width: auto;
+    scrollbar-color: var(--pe-accent) rgba(128, 128, 128, 0.2);
+    scrollbar-gutter: stable;
+}
+
+.pe-scroll::-webkit-scrollbar,
+.pe-dialog-rows::-webkit-scrollbar,
+.pe-notes::-webkit-scrollbar {
+    width: 18px;
+    height: 18px;
+}
+
+.pe-scroll::-webkit-scrollbar-track,
+.pe-dialog-rows::-webkit-scrollbar-track,
+.pe-notes::-webkit-scrollbar-track {
+    background: rgba(128, 128, 128, 0.2);
+    border-radius: 10px;
+}
+
+/* Transparent border + content-box clip insets the thumb inside the lane, so a
+   12px thumb sits in an 18px track instead of filling it edge to edge.
+   min-height keeps it grabbable on a long step list. */
+.pe-scroll::-webkit-scrollbar-thumb,
+.pe-dialog-rows::-webkit-scrollbar-thumb,
+.pe-notes::-webkit-scrollbar-thumb {
+    background-color: var(--pe-accent);
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 10px;
+    min-height: 60px;
+}
+
+.pe-scroll::-webkit-scrollbar-thumb:active,
+.pe-dialog-rows::-webkit-scrollbar-thumb:active,
+.pe-notes::-webkit-scrollbar-thumb:active {
+    background-color: var(--text-primary);
+}
+
 /* ── Step rail ───────────────────────────────────────────────────────────── */
 
 .pe-steps { display: flex; flex-direction: column; gap: 10px; }
