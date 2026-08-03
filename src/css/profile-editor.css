@@ -1,0 +1,618 @@
+/* Profile editor — single-screen redesign.
+ *
+ * Written as a plain stylesheet, not Tailwind utilities, because app.css is a
+ * PRE-BUILT Tailwind bundle committed to the repo: an arbitrary utility whose
+ * value isn't already in that bundle (w-[420px], gap-[18px]) compiles to
+ * nothing and silently does nothing. Semantic classes also keep the JS readable
+ * — the old editor spent whole lines on class strings.
+ *
+ * Colour comes only from the existing theme variables, so light/dark both work
+ * with no per-theme rules here beyond the two that need a different mix.
+ */
+
+:root {
+    --pe-accent: var(--button-primary-bg);
+    --pe-flow: #0358cf;   /* same hues the shot chart uses for these channels */
+    --pe-pressure: #17c29a;
+    --pe-gap: 18px;
+}
+
+[data-theme="dark"] {
+    --pe-flow: #5b8dff;
+    --pe-pressure: #17c29a;
+}
+
+/* ── Shell ───────────────────────────────────────────────────────────────── */
+
+/* This sheet is loaded AFTER app.css, so a display: rule here (.pe-btn,
+   .pe-title) outranks Tailwind's .hidden at equal specificity and an element
+   toggled with classList.add('hidden') would stay on screen. Restate it. */
+.pe .hidden { display: none !important; }
+
+.pe {
+    display: flex;
+    flex-direction: column;
+    width: 1920px;
+    height: 100%;
+    overflow: hidden;
+    background: var(--profile-button-background-color);
+    color: var(--text-primary);
+}
+
+.pe-header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    height: 118px;
+    padding: 0 30px;
+    background: var(--box-color);
+    border-bottom: 1px solid var(--border-color);
+    flex: 0 0 auto;
+}
+
+.pe-title-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+.pe-title {
+    font-size: 34px;
+    font-weight: 700;
+    color: var(--text-primary);
+    cursor: pointer;
+    user-select: none;
+    border: none;
+    background: none;
+    padding: 0;
+    text-align: left;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 900px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.pe-title:hover { color: var(--pe-accent); }
+.pe-title svg { width: 22px; height: 22px; flex: 0 0 auto; opacity: 0.55; }
+
+.pe-title-input {
+    font-size: 34px;
+    font-weight: 700;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid var(--pe-accent);
+    outline: none;
+    width: 760px;
+}
+
+.pe-subtitle {
+    font-size: 17px;
+    color: var(--low-contrast-white);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.pe-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 66px;
+    padding: 0 28px;
+    border-radius: 16px;
+    border: 2px solid var(--border-color);
+    background: var(--box-color);
+    color: var(--text-primary);
+    font-size: 21px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.pe-btn:hover { border-color: var(--pe-accent); }
+.pe-btn:disabled { opacity: 0.4; cursor: default; }
+.pe-btn:disabled:hover { border-color: var(--border-color); }
+
+.pe-btn--primary {
+    background: var(--pe-accent);
+    border-color: var(--pe-accent);
+    color: #fff;
+    min-width: 190px;
+}
+.pe-btn--primary:hover { opacity: 0.9; border-color: var(--pe-accent); }
+
+.pe-btn--icon { width: 66px; padding: 0; }
+.pe-btn svg { width: 22px; height: 22px; }
+
+/* ── Three-column body ───────────────────────────────────────────────────── */
+
+.pe-body {
+    display: grid;
+    grid-template-columns: 400px 1fr 580px;
+    flex: 1;
+    min-height: 0;
+}
+
+.pe-col {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    border-right: 1px solid var(--border-color);
+}
+.pe-col:last-child { border-right: none; }
+
+.pe-col-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 18px 22px 12px;
+    flex: 0 0 auto;
+}
+
+.pe-col-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--low-contrast-white);
+}
+
+/* Section divider inside an already-padded .pe-scroll — .pe-col-head's own
+   horizontal padding would double up and indent it past its own rows. */
+.pe-section-head { padding: 22px 0 8px; }
+
+.pe-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 22px 22px;
+}
+
+/* ── Step rail ───────────────────────────────────────────────────────────── */
+
+.pe-steps { display: flex; flex-direction: column; gap: 10px; }
+
+.pe-step-card {
+    display: grid;
+    grid-template-columns: 38px 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 2px solid var(--border-color);
+    border-left: 6px solid var(--pe-flow);
+    background: var(--box-color);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    color: var(--text-primary);
+}
+
+.pe-step-card[data-pump="pressure"] { border-left-color: var(--pe-pressure); }
+.pe-step-card:hover { border-color: var(--pe-accent); }
+.pe-step-card.is-active {
+    border-color: var(--pe-accent);
+    box-shadow: inset 0 0 0 1px var(--pe-accent);
+}
+
+.pe-step-num {
+    grid-row: span 2;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 19px;
+    font-weight: 700;
+    background: var(--button-grey);
+    color: var(--low-contrast-white);
+}
+.pe-step-card.is-active .pe-step-num { background: var(--pe-accent); color: #fff; }
+
+.pe-step-name {
+    font-size: 21px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pe-step-sum {
+    grid-column: 2;
+    font-size: 16px;
+    color: var(--low-contrast-white);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Tools appear on the selected card only. Unlike the old timed reveal this is
+   tied to a state the user can see (the card is highlighted) and never expires
+   on its own. */
+.pe-step-tools {
+    grid-column: 2;
+    display: none;
+    gap: 8px;
+    padding-top: 10px;
+}
+.pe-step-card.is-active .pe-step-tools { display: flex; }
+
+.pe-tool {
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    background: var(--profile-button-background-color);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+.pe-tool:hover { border-color: var(--pe-accent); color: var(--pe-accent); }
+.pe-tool:disabled { opacity: 0.3; cursor: default; }
+.pe-tool:disabled:hover { border-color: var(--border-color); color: var(--text-primary); }
+.pe-tool svg { width: 22px; height: 22px; }
+
+.pe-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    height: 66px;
+    margin-top: 12px;
+    border-radius: 14px;
+    border: 2px dashed var(--pe-accent);
+    background: transparent;
+    color: var(--pe-accent);
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.pe-add:hover { background: var(--button-grey); }
+.pe-add svg { width: 22px; height: 22px; }
+
+.pe-empty {
+    padding: 30px 4px;
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--low-contrast-white);
+}
+
+/* ── Panels (centre column) ──────────────────────────────────────────────── */
+
+.pe-panel {
+    background: var(--box-color);
+    border: 1px solid var(--border-color);
+    border-radius: 18px;
+    padding: 20px 24px 24px;
+    margin-bottom: var(--pe-gap);
+}
+
+.pe-panel-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 4px;
+}
+
+.pe-panel-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--pe-accent);
+}
+
+/* One plain sentence per panel saying what it does. The old editor put this
+   behind hover tooltips, which do not exist on a tablet. */
+.pe-hint {
+    font-size: 16px;
+    line-height: 1.45;
+    color: var(--low-contrast-white);
+    margin-bottom: 16px;
+}
+
+.pe-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+    flex-wrap: wrap;
+}
+
+.pe-field-label {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.pe-field-sub {
+    font-size: 15px;
+    color: var(--low-contrast-white);
+    margin-top: 2px;
+}
+
+.pe-name-input {
+    width: 100%;
+    height: 58px;
+    padding: 0 16px;
+    font-size: 21px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--profile-button-background-color);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    outline: none;
+}
+.pe-name-input:focus { border-color: var(--pe-accent); }
+
+/* ── Segmented control ───────────────────────────────────────────────────── */
+/* Replaces the old cycle-on-tap buttons: every option is visible, and which one
+   is active is a state, not something you infer from the label. */
+
+.pe-seg {
+    display: inline-flex;
+    padding: 4px;
+    gap: 4px;
+    border-radius: 14px;
+    background: var(--button-grey);
+}
+
+.pe-seg-btn {
+    min-width: 108px;
+    height: 52px;
+    padding: 0 18px;
+    border: none;
+    border-radius: 11px;
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 19px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.pe-seg-btn.is-on { background: var(--pe-accent); color: #fff; }
+
+/* ── Stepper ─────────────────────────────────────────────────────────────── */
+/* Always visible. The old grid hid ± until tapped and then needed a hint system
+   to teach the reveal — a control that needs a tutorial is the wrong control. */
+
+.pe-stepper { display: inline-flex; align-items: center; gap: 10px; }
+
+.pe-stepper-btn {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    border: none;
+    background: var(--button-grey);
+    color: var(--text-primary);
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+    flex: 0 0 auto;
+}
+.pe-stepper-btn:disabled { opacity: 0.35; cursor: default; }
+
+.pe-stepper-val {
+    min-width: 132px;
+    height: 56px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    border: 2px solid var(--border-color);
+    background: var(--profile-button-background-color);
+    color: var(--text-primary);
+    font-size: 24px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+}
+.pe-stepper-val:hover { border-color: var(--pe-accent); }
+.pe-stepper-val input { font: inherit; color: inherit; }
+
+/* ── "Ends when" rows ────────────────────────────────────────────────────── */
+
+.pe-cond {
+    display: flex;
+    align-items: center;
+    /* Controls that cannot fit beside the label drop to their own line rather
+       than squeezing it. Without this (and the min-width on the body below) the
+       "Move on if" row's three controls — two segmented controls plus a stepper,
+       732px inside an 826px row — crushed the label column to ZERO width and
+       stretched its note to 248px tall, one character per line. Wrapping is the
+       general safety net; long translations can do the same to a one-control
+       row. */
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 2px solid var(--border-color);
+    background: var(--profile-button-background-color);
+    margin-bottom: 10px;
+}
+.pe-cond.is-off { opacity: 0.55; }
+.pe-cond.is-on { border-color: var(--pe-accent); }
+
+.pe-cond-check {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    border-radius: 9px;
+    border: 2px solid var(--low-contrast-white);
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+}
+.pe-cond.is-on .pe-cond-check { background: var(--pe-accent); border-color: var(--pe-accent); }
+.pe-cond-check svg { width: 20px; height: 20px; }
+.pe-cond.is-off .pe-cond-check svg { visibility: hidden; }
+
+/* The 200px floor is what makes the wrap above happen: a flex item may shrink
+   past its basis all the way to min-content, so only min-width stops the text
+   column collapsing. */
+.pe-cond-body { flex: 1 1 200px; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
+.pe-cond-label { font-size: 19px; font-weight: 600; }
+.pe-cond-note { font-size: 15px; color: var(--low-contrast-white); line-height: 1.4; }
+.pe-cond-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+
+/* Rows carrying more than one control stack unconditionally — "Move on if
+   [Pressure] [is over] [− 9.0 bar +]" is a sentence, and it reads as one on its
+   own line under the label instead of jammed against the right edge. Indented
+   to clear the checkbox so it lines up with the label it belongs to. */
+.pe-cond--stack .pe-cond-controls {
+    flex: 1 0 100%;
+    justify-content: flex-start;
+    padding-left: 50px; /* checkbox (34px) + row gap (16px) */
+    margin-left: 0;
+}
+
+.pe-note {
+    font-size: 16px;
+    color: var(--low-contrast-white);
+    padding-top: 4px;
+}
+
+/* ── Right column: preview + shot settings ───────────────────────────────── */
+
+.pe-graph { width: 100%; height: 330px; }
+
+.pe-stat-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.pe-stat {
+    flex: 1;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: var(--box-color);
+    border: 1px solid var(--border-color);
+}
+.pe-stat-k { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--low-contrast-white); }
+.pe-stat-v { font-size: 24px; font-weight: 700; color: var(--text-primary); }
+
+.pe-set {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+.pe-set:last-child { border-bottom: none; }
+.pe-set-label { font-size: 19px; font-weight: 600; color: var(--text-primary); }
+.pe-set-hint { font-size: 15px; color: var(--low-contrast-white); }
+
+.pe-input, .pe-select {
+    width: 100%;
+    height: 58px;
+    padding: 0 14px;
+    font-size: 20px;
+    color: var(--text-primary);
+    background: var(--profile-button-background-color);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    outline: none;
+}
+.pe-input:focus, .pe-select:focus { border-color: var(--pe-accent); }
+
+.pe-notes {
+    min-height: 120px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 14px;
+    font-size: 18px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--profile-button-background-color);
+    cursor: pointer;
+}
+.pe-notes:hover { border-color: var(--pe-accent); }
+.pe-notes.is-empty { color: var(--low-contrast-white); }
+
+.pe-row { display: flex; gap: 10px; }
+.pe-row .pe-input { flex: 1; }
+
+.pe-code-input {
+    text-align: center;
+    letter-spacing: 6px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.pe-status { font-size: 16px; color: var(--low-contrast-white); min-height: 22px; }
+
+/* ── Dialogs ─────────────────────────────────────────────────────────────── */
+
+.pe-dialog {
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 18px;
+    background: var(--box-color);
+    color: var(--text-primary);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    max-width: 560px;
+    width: 90vw;
+    margin-top: 10vh;
+    margin-bottom: auto;
+}
+.pe-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.pe-dialog-body { display: flex; flex-direction: column; gap: 16px; padding: 26px; }
+.pe-dialog h3 { font-size: 24px; font-weight: 700; }
+.pe-dialog p { font-size: 19px; line-height: 1.45; }
+.pe-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
+.pe-dialog-rows { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow-y: auto; }
+
+.pe-pick { max-width: 720px; }
+
+/* Step-type picker: the one place a new user learns what a step can be. */
+.pe-pick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.pe-pick-card {
+    text-align: left;
+    padding: 16px 18px;
+    border-radius: 14px;
+    border: 2px solid var(--border-color);
+    background: var(--profile-button-background-color);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+.pe-pick-card:hover { border-color: var(--pe-accent); }
+.pe-pick-name { font-size: 21px; font-weight: 700; margin-bottom: 4px; }
+.pe-pick-desc { font-size: 16px; line-height: 1.4; color: var(--low-contrast-white); }
+
+.pe-version-row {
+    text-align: left;
+    padding: 16px;
+    border-radius: 12px;
+    border: 2px solid var(--border-color);
+    background: var(--profile-button-background-color);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+.pe-version-row:hover { border-color: var(--pe-accent); }
+.pe-version-row.is-on { border-color: var(--pe-accent); }
+.pe-version-title { font-size: 19px; font-weight: 600; }
+.pe-version-stamp { font-size: 15px; color: var(--low-contrast-white); }
