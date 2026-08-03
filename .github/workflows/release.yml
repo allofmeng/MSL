@@ -1,0 +1,143 @@
+name: Build and Release Skin
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync translations from Google Sheets
+        env:
+          TRANSLATIONS_URL: ${{ secrets.TRANSLATIONS_SHEET_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TRANSLATIONS_URL:-}" ]; then
+            echo "::warning::TRANSLATIONS_SHEET_URL secret not set — skipping translation sync, using committed file"
+          else
+            curl -fL "$TRANSLATIONS_URL" -o "src/ui/de1 gui translation - Sheet1.csv"
+            echo "Translations synced from Google Sheets"
+            echo "Languages: $(head -1 'src/ui/de1 gui translation - Sheet1.csv')"
+          fi
+
+      - name: Stage whitelist into ./dist
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Whitelist — ONLY these paths become part of the skin. Everything else
+          # in the repo (CLAUDE.md, .claude/, notes, stray assets) is excluded by
+          # construction, not by ignore rules.
+          #
+          # Layout note: index.html at repo root references src/css, src/modules,
+          # src/profiles, src/settings, src/ui — so we ship src/ as-is, not the
+          # individual subfolders. Root app.css is a stale duplicate of
+          # src/css/app.css and is deliberately NOT shipped.
+          for path in index.html skin-manifest.json src; do
+            if [ -e "$path" ]; then
+              cp -r "$path" dist/
+            else
+              echo "::warning::whitelist entry missing: $path"
+            fi
+          done
+
+      # On tag builds, rewrite the version from the git tag so the tag is the
+      # single source of truth. skin-manifest.json and src/version.js must agree:
+      # settings.js compares APP_VERSION against the on-disk manifest version to
+      # decide whether to show "reload to apply", so a mismatch shows a permanent
+      # false update badge.
+      - name: Sync version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          jq --arg v "$version" '.version = $v' dist/skin-manifest.json > dist/skin-manifest.json.tmp
+          mv dist/skin-manifest.json.tmp dist/skin-manifest.json
+          sed -i -E "s/^export const APP_VERSION = '.*';/export const APP_VERSION = '${version}';/" dist/src/version.js
+          echo "Synced version to: $version"
+          cat dist/skin-manifest.json
+          grep APP_VERSION dist/src/version.js
+
+      # On main pushes (dist branch deploys), suffix the id so the dist build
+      # installs alongside the released skin instead of clobbering it.
+      - name: Set dist manifest id
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          jq '.id = "msl-dist"' dist/skin-manifest.json > dist/skin-manifest.json.tmp
+          mv dist/skin-manifest.json.tmp dist/skin-manifest.json
+          cat dist/skin-manifest.json
+
+      - name: Validate skin-manifest.json
+        run: |
+          set -euo pipefail
+          test -f dist/skin-manifest.json
+          jq -e '.id == "msl" or .id == "msl-dist"' dist/skin-manifest.json > /dev/null
+          jq -e '.version' dist/skin-manifest.json > /dev/null
+
+      # Version numbers reach Decaid's semver parser and settings.js
+      # compareVersions() (parseInt per dot-segment) — anything non-numeric
+      # degrades silently instead of failing here.
+      - name: Validate version is numeric
+        run: |
+          set -euo pipefail
+          version=$(jq -r '.version' dist/skin-manifest.json)
+          echo "$version" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || {
+            echo "::error::version must be numeric dot-segments, got: $version"
+            exit 1
+          }
+
+      # On tag builds the manifest is rewritten from the tag, so this only
+      # catches a committed version.js that drifted from the manifest on a
+      # main-branch (dist) build.
+      - name: Check APP_VERSION matches manifest
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          manifest=$(jq -r '.version' dist/skin-manifest.json)
+          app=$(grep -oE "APP_VERSION = '[^']*'" dist/src/version.js | cut -d"'" -f2)
+          if [ "$manifest" != "$app" ]; then
+            echo "::error::skin-manifest.json version ($manifest) != APP_VERSION ($app)"
+            exit 1
+          fi
+
+      - name: Reject filenames with Win32 reserved chars
+        run: |
+          set -euo pipefail
+          bad=$(find dist -type f | grep -E '[<>:"|?*]' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::found filenames with Win32 reserved chars:"
+            echo "$bad"
+            exit 1
+          fi
+
+      # On every push to main: publish ./dist to the dist branch (orphan, force)
+      - name: Deploy to dist branch
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: dist
+          force_orphan: true
+
+      # On tag push: zip ./dist and publish a GitHub Release. skin-manifest.json
+      # must sit at the ZIP ROOT — Decaid reads it from there to identify the skin.
+      - name: Create release archive
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cd dist
+          zip -r ../msl-${{ github.ref_name }}.zip .
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: msl-${{ github.ref_name }}.zip
+          generate_release_notes: true
