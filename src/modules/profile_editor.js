@@ -512,7 +512,7 @@ function renderRail() {
 
     if (!steps.length) {
         list.appendChild(el('p', 'pe-empty',
-            'This profile has no steps yet. Add one below to say what the machine should do first.'));
+            t('This profile has no steps yet. Add one below to say what the machine should do first.')));
         return;
     }
 
@@ -574,7 +574,7 @@ function renderStepEditor() {
 
     if (!step) {
         if (heading) heading.textContent = t('Step');
-        host.appendChild(el('p', 'pe-empty', 'Pick a step on the left, or add one, to edit it here.'));
+        host.appendChild(el('p', 'pe-empty', t('Pick a step on the left, or add one, to edit it here.')));
         return;
     }
 
@@ -605,20 +605,20 @@ function renderStepEditor() {
 
     host.appendChild(panel(
         t('Name'),
-        'What this step is for. It shows up in the list and on the shot graph.',
+        t('What this step is for. It shows up in the list and on the shot graph.'),
         [nameInput],
     ));
 
     // ── Water ───────────────────────────────────────────────────────────────
     host.appendChild(panel(
         t('Water'),
-        'How hot the water is during this step, and which sensor the machine uses to hold that temperature.',
+        t('How hot the water is during this step, and which sensor the machine uses to hold that temperature.'),
         [
             field(t('Temperature'), stepper({
                 value: step.temperature ?? 93,
                 lim: FIELD_LIMITS.temperature,
                 unit: '°C',
-                title: 'Temperature',
+                title: t('Temperature'),
                 fieldType: 'pe-temp',
                 onChange: (val) => { step.temperature = val; touch(); },
             })),
@@ -628,9 +628,9 @@ function renderStepEditor() {
                     { value: 'water', label: t('Mix') },
                 ],
                 value: step.sensor === 'water' ? 'water' : 'coffee',
-                ariaLabel: 'Temperature sensor',
+                ariaLabel: t('Temperature sensor'),
                 onChange: (val) => { step.sensor = val; renderStepEditor(); touch(); },
-            }), 'Group is the shower screen; Mix is the water before it gets there.'),
+            }), t('Group is the shower screen; Mix is the water before it gets there.')),
         ],
     ));
 
@@ -643,7 +643,7 @@ function renderStepEditor() {
                 { value: 'pressure', label: t('Pressure') },
             ],
             value: isFlow ? 'flow' : 'pressure',
-            ariaLabel: 'Pump mode',
+            ariaLabel: t('Pump mode'),
             onChange: (val) => {
                 if (val === 'pressure') {
                     step.pump = 'pressure';
@@ -659,14 +659,14 @@ function renderStepEditor() {
                 touch();
             },
         }), isFlow
-            ? 'Flow is fixed; pressure ends up wherever the puck puts it.'
-            : 'Pressure is fixed; flow ends up wherever the puck puts it.'),
+            ? t('Flow is fixed; pressure ends up wherever the puck puts it.')
+            : t('Pressure is fixed; flow ends up wherever the puck puts it.')),
 
         field(t('Target'), stepper({
             value: isFlow ? (step.flow ?? 0) : (step.pressure ?? 0),
             lim: pumpLim,
             unit: isFlow ? 'mL/s' : 'bar',
-            title: isFlow ? 'Flow' : 'Pressure',
+            title: isFlow ? t('Flow') : t('Pressure'),
             fieldType: 'pe-pump',
             onChange: (val) => {
                 if (isFlow) step.flow = val; else step.pressure = val;
@@ -680,9 +680,9 @@ function renderStepEditor() {
                 { value: 'smooth', label: t('Slowly') },
             ],
             value: step.transition === 'smooth' ? 'smooth' : 'fast',
-            ariaLabel: 'Transition',
+            ariaLabel: t('Transition'),
             onChange: (val) => { step.transition = val; renderStepEditor(); touch(); },
-        }), 'Quickly jumps to the target; slowly ramps into it over the first few seconds.'),
+        }), t('Quickly jumps to the target; slowly ramps into it over the first few seconds.')),
     ];
 
     // Limiter — a cap on the OTHER channel. Off is the normal case, so it stays
@@ -697,13 +697,13 @@ function renderStepEditor() {
         on: limOn,
         label: isFlow ? t('Limit pressure') : t('Limit flow'),
         note: isFlow
-            ? 'Never let pressure climb past this, even if it means less flow.'
-            : 'Never let flow climb past this, even if it means less pressure.',
+            ? t('Never let pressure climb past this, even if it means less flow.')
+            : t('Never let flow climb past this, even if it means less pressure.'),
         controls: limOn ? [stepper({
             value: step.limiter.value,
             lim: limLim,
             unit: limUnit,
-            title: isFlow ? 'Pressure limit' : 'Flow limit',
+            title: isFlow ? t('Pressure limit') : t('Flow limit'),
             fieldType: 'pe-limit',
             onChange: (val) => {
                 rememberCond(limMemoKey, val);
@@ -723,7 +723,7 @@ function renderStepEditor() {
         },
     }));
 
-    host.appendChild(panel(t('Pump'), 'What the pump aims for while this step runs.', pumpControls));
+    host.appendChild(panel(t('Pump'), t('What the pump aims for while this step runs.'), pumpControls));
 
     // ── Ends when ───────────────────────────────────────────────────────────
     // Time / weight / volume / exit condition all answer the same question, and
@@ -762,16 +762,16 @@ function renderStepEditor() {
     }
 
     endsControls.push(maxRow({
-        key: 'seconds', label: t('Time'), note: 'How long this step may run.',
-        unit: 's', lim: FIELD_LIMITS.seconds, fieldType: 'pe-max-seconds', title: 'Max time',
+        key: 'seconds', label: t('Time'), note: t('How long this step may run.'),
+        unit: 's', lim: FIELD_LIMITS.seconds, fieldType: 'pe-max-seconds', title: t('Max time'),
     }));
     endsControls.push(maxRow({
-        key: 'weight', label: t('Weight'), note: 'Needs a connected scale.',
-        unit: 'g', lim: FIELD_LIMITS.weight, fieldType: 'pe-max-weight', title: 'Max weight',
+        key: 'weight', label: t('Weight'), note: t('Needs a connected scale.'),
+        unit: 'g', lim: FIELD_LIMITS.weight, fieldType: 'pe-max-weight', title: t('Max weight'),
     }));
     endsControls.push(maxRow({
-        key: 'volume', label: t('Volume'), note: 'Water the pump has pushed through during this step.',
-        unit: 'ml', lim: FIELD_LIMITS.volume, fieldType: 'pe-max-volume', title: 'Max volume',
+        key: 'volume', label: t('Volume'), note: t('Water the pump has pushed through during this step.'),
+        unit: 'ml', lim: FIELD_LIMITS.volume, fieldType: 'pe-max-volume', title: t('Max volume'),
     }));
 
     // Exit condition — pressure/flow crossing a threshold.
@@ -785,7 +785,7 @@ function renderStepEditor() {
     endsControls.push(conditionRow({
         on: exitOn,
         label: t('Move on if'),
-        note: 'Typical use: leave preinfusion as soon as the puck is saturated.',
+        note: t('Typical use: leave preinfusion as soon as the puck is saturated.'),
         controls: exitOn ? [
             segmented({
                 options: [
@@ -793,7 +793,7 @@ function renderStepEditor() {
                     { value: 'flow', label: t('Flow') },
                 ],
                 value: exitType,
-                ariaLabel: 'Exit channel',
+                ariaLabel: t('Exit channel'),
                 onChange: (val) => {
                     // Bounds are per-type — pressure tops out at 12 bar, flow at
                     // 8 mL/s — so the value has to come along into the new range.
@@ -808,14 +808,14 @@ function renderStepEditor() {
                     { value: 'under', label: t('is under') },
                 ],
                 value: exitCond,
-                ariaLabel: 'Exit direction',
+                ariaLabel: t('Exit direction'),
                 onChange: (val) => { step.exit = { ...step.exit, condition: val }; renderStepEditor(); touch(); },
             }),
             stepper({
                 value: exitValue,
                 lim: exitLim,
                 unit: EXIT_UNIT_MAP[exitType],
-                title: `Exit ${exitType}`,
+                title: `${t('Exit')} ${exitType === 'flow' ? t('Flow') : t('Pressure')}`,
                 fieldType: 'pe-exit',
                 onChange: (val) => { step.exit = { ...step.exit, value: val }; rememberCond('exit', val); touch(); },
             }),
@@ -829,13 +829,13 @@ function renderStepEditor() {
 
     endsControls.push(stepHasNoEnd(step)
         ? (() => {
-            const warn = el('p', 'pe-note', 'Nothing ends this step, so it will run until you stop the shot yourself. Tick at least one condition above.');
+            const warn = el('p', 'pe-note', t('Nothing ends this step, so it will run until you stop the shot yourself. Tick at least one condition above.'));
             warn.style.color = 'var(--status-red-color)';
             return warn;
         })()
-        : el('p', 'pe-note', 'The step ends as soon as the FIRST ticked condition happens.'));
+        : el('p', 'pe-note', t('The step ends as soon as the FIRST ticked condition happens.')));
 
-    host.appendChild(panel(t('Ending criteria'), 'What makes the machine move on to the next step.', endsControls));
+    host.appendChild(panel(t('Ending criteria'), t('What makes the machine move on to the next step.'), endsControls));
 }
 
 // ─── Render: live preview ───────────────────────────────────────────────────
@@ -1005,23 +1005,23 @@ function renderShotSettings() {
     host.appendChild(el('div', 'pe-section-head', el('span', 'pe-col-title', t('Profile settings'))));
 
     // Stop at weight
-    host.appendChild(setting(t('Stop at weight'), 'Ends the whole shot at this weight in the cup. 0 means no weight stop.',
+    host.appendChild(setting(t('Stop at weight'), t('Ends the whole shot at this weight in the cup. 0 means no weight stop.'),
         stepper({
             value: p.target_weight || 0,
             lim: FIELD_LIMITS.targetWeight,
             unit: 'g',
-            title: 'Target Weight (g)',
+            title: t('Target Weight (g)'),
             fieldType: 'pe-target-weight',
             onChange: (val) => { p.target_weight = val; renderStats(); },
         })));
 
     // Stop at volume
-    host.appendChild(setting(t('Stop at volume'), 'Ends the shot after this much water has been pushed through. 0 means no volume stop.',
+    host.appendChild(setting(t('Stop at volume'), t('Ends the shot after this much water has been pushed through. 0 means no volume stop.'),
         stepper({
             value: p.target_volume || 0,
             lim: FIELD_LIMITS.targetVolume,
             unit: 'ml',
-            title: 'Volume (ml)',
+            title: t('Volume (ml)'),
             fieldType: 'pe-target-volume',
             onChange: (val) => { p.target_volume = val; renderStats(); },
         })));
@@ -1046,7 +1046,7 @@ function renderShotSettings() {
         });
 
         select.addEventListener('change', () => { p.target_volume_count_start = parseInt(select.value, 10); });
-        host.appendChild(setting(t('Preinfusion ends after'), 'Volume for the stop above only starts counting after this step.', select));
+        host.appendChild(setting(t('Preinfusion ends after'), t('Volume for the stop above only starts counting after this step.'), select));
     }
 
     // Beverage type
@@ -1060,7 +1060,7 @@ function renderShotSettings() {
             select.appendChild(opt);
         });
         select.addEventListener('change', () => { p.beverage_type = select.value; });
-        host.appendChild(setting(t('Beverage type'), 'Groups the profile in the profile list.', select));
+        host.appendChild(setting(t('Beverage type'), t('Groups the profile in the profile list.'), select));
     }
 
     // Notes
@@ -1075,7 +1075,7 @@ function renderShotSettings() {
         preview.addEventListener('click', () => {
             openNotesModal(p.notes || '', (newText) => { p.notes = newText; paint(); });
         });
-        host.appendChild(setting(t('Notes'), 'Shown with the profile in the selector.', preview));
+        host.appendChild(setting(t('Notes'), t('Shown with the profile in the selector.'), preview));
     }
 
     // Author
@@ -1102,10 +1102,10 @@ function renderShotSettings() {
         details.appendChild(summary);
 
         const barRange = parseFloat(steps.find(s => s.pump === 'flow')?.limiter?.range ?? 0.6);
-        details.appendChild(setting(t('Limiter Tolerance (bar)'), 'How far over a pressure cap the machine may drift before clamping.',
+        details.appendChild(setting(t('Limiter Tolerance (bar)'), t('How far over a pressure cap the machine may drift before clamping.'),
             stepper({
                 value: barRange, lim: FIELD_LIMITS.limiterRange, unit: 'bar',
-                title: 'Limiter tolerance', fieldType: 'pe-lim-range-bar',
+                title: t('Limiter tolerance'), fieldType: 'pe-lim-range-bar',
                 onChange: (val) => {
                     (p.steps || []).forEach(step => {
                         if (step.pump === 'flow' && step.limiter) step.limiter.range = val;
@@ -1114,10 +1114,10 @@ function renderShotSettings() {
             })));
 
         const mlsRange = parseFloat(steps.find(s => s.pump === 'pressure')?.limiter?.range ?? 0.6);
-        details.appendChild(setting(t('Limiter Tolerance (mL/s)'), 'Same, for a flow cap on a pressure-held step.',
+        details.appendChild(setting(t('Limiter Tolerance (mL/s)'), t('Same, for a flow cap on a pressure-held step.'),
             stepper({
                 value: mlsRange, lim: FIELD_LIMITS.limiterRange, unit: 'mL/s',
-                title: 'Limiter tolerance', fieldType: 'pe-lim-range-mls',
+                title: t('Limiter tolerance'), fieldType: 'pe-lim-range-mls',
                 onChange: (val) => {
                     (p.steps || []).forEach(step => {
                         if (step.pump === 'pressure' && step.limiter) step.limiter.range = val;
@@ -1125,10 +1125,10 @@ function renderShotSettings() {
                 },
             })));
 
-        details.appendChild(setting(t('Tank Temperature (°c)'), 'Preheats the water tank before the shot. 0 leaves it alone.',
+        details.appendChild(setting(t('Tank Temperature (°c)'), t('Preheats the water tank before the shot. 0 leaves it alone.'),
             stepper({
                 value: p.tank_temperature || 0, lim: FIELD_LIMITS.tankTemp, unit: '°C',
-                title: 'Tank Temperature (°c)', fieldType: 'pe-tank-temp',
+                title: t('Tank Temperature (°c)'), fieldType: 'pe-tank-temp',
                 onChange: (val) => { p.tank_temperature = val; },
             })));
 
@@ -1142,8 +1142,8 @@ function renderShotSettings() {
     // would clean up imports the UI never offered.
     if (!editorState.sourceProfileId) {
         host.appendChild(el('div', 'pe-section-head', el('span', 'pe-col-title', t('Import'))));
-        host.appendChild(setting(t('Upload Local File'), 'Load a .json profile from this device.', buildUploadButton()));
-        host.appendChild(setting(t('Import from Share Code'), 'Paste a 4-character Visualizer share code.', buildShareImport()));
+        host.appendChild(setting(t('Upload Local File'), t('Load a .json profile from this device.'), buildUploadButton()));
+        host.appendChild(setting(t('Import from Share Code'), t('Paste a 4-character Visualizer share code.'), buildShareImport()));
     }
 }
 
@@ -1188,9 +1188,9 @@ function buildUploadButton() {
                 const validation = validateProfileStructure(parsed);
                 if (!validation.isValid) throw new Error(validation.errorMessage);
                 reloadEditorWithProfile(parsed, null);
-                showToast(`Loaded: ${parsed.title || 'Profile'}`, 2500, 'success');
+                showToast(`${t('Loaded')}: ${parsed.title || t('Profile')}`, 2500, 'success');
             } catch (err) {
-                showToast(`Error: ${err.message}`, 4000, 'error');
+                showToast(`${t('Error')}: ${err.message}`, 4000, 'error');
             }
         };
         fileInput.click();
@@ -1229,24 +1229,24 @@ function buildShareImport() {
             const vizSettings = await getPluginSettings('visualizer.reaplugin');
             const isConfigured = vizSettings?.Enabled !== false && !!(vizSettings?.Username && vizSettings?.Password);
             if (!isConfigured) {
-                status.innerHTML = 'No Visualizer account found. Go to <strong>Settings → Extensions → Visualizer</strong> to log in first.';
+                status.innerHTML = t('No Visualizer account found. Go to <strong>Settings → Extensions → Visualizer</strong> to log in first.');
                 return;
             }
             const result = await callPluginEndpoint('visualizer.reaplugin', 'import', { shareCode: code });
             if (!result.success) {
-                const msg = result.error || 'Import failed';
+                const msg = result.error || t('Import failed');
                 const isAuthError = /credential|login|auth|unauthorized|password|username/i.test(msg);
                 status.innerHTML = isAuthError
-                    ? `${msg} — Go to <strong>Settings → Extensions → Visualizer</strong> to log in.`
+                    ? `${msg} — ${t('Go to <strong>Settings → Extensions → Visualizer</strong> to log in.')}`
                     : msg;
                 return;
             }
             const { init: initPM, availableProfiles } = await import('./profileManager.js');
             await initPM();
             const rec = availableProfiles[result.profileId];
-            if (!rec) throw new Error('Profile not found after import');
+            if (!rec) throw new Error(t('Profile not found after import'));
             reloadEditorWithProfile(rec.profile, rec);
-            showToast(`Imported: ${rec.profile.title}`, 2500, 'success');
+            showToast(`${t('Imported')}: ${rec.profile.title}`, 2500, 'success');
         } catch (err) {
             status.textContent = err.message;
         } finally {
@@ -1285,13 +1285,13 @@ function promptStepType() {
 
         const body = el('div', 'pe-dialog-body');
         body.appendChild(el('h3', null, t('Insert a step')));
-        body.appendChild(el('p', 'pe-hint', 'Pick what this step should do. You can change anything about it afterwards.'));
+        body.appendChild(el('p', 'pe-hint', t('Pick what this step should do. You can change anything about it afterwards.')));
 
         const grid = el('div', 'pe-pick-grid');
         STEP_PRESETS.forEach((preset) => {
             const card = el('button', 'pe-pick-card', [
                 el('div', 'pe-pick-name', t(preset.name)),
-                el('div', 'pe-pick-desc', preset.desc),
+                el('div', 'pe-pick-desc', t(preset.desc)),
             ]);
             card.type = 'button';
             card.addEventListener('click', () => done(preset));
@@ -1481,11 +1481,22 @@ function executionChanged(orig, edited) {
 
 async function saveProfile() {
     if (!editorState.profile.title?.trim()) {
-        showToast('Profile needs a name', 3000, 'error');
+        showToast(t('Profile needs a name'), 3000, 'error');
         return;
     }
     if (!editorState.profile.steps?.length) {
-        showToast('Add at least one step', 3000, 'error');
+        showToast(t('Add at least one step'), 3000, 'error');
+        return;
+    }
+
+    // Creating a brand-new profile with nothing touched: saving would mint a
+    // duplicate of the starting template. Keep the user in the editor and ask
+    // for an edit instead of bouncing them back to the selector.
+    // An import IS the change — saving a freshly uploaded/share-code profile
+    // untouched is a real save, so it stays exempt.
+    if (_isNewProfileSession && !_hasImportedInSession
+        && JSON.stringify(editorState.profile) === _baselineProfileJson) {
+        showToast(t('Change something before saving'), 3000, 'info');
         return;
     }
 
@@ -1500,7 +1511,7 @@ async function saveProfile() {
             ? JSON.stringify(editorState.sourceProfileRecord.profile)
             : null;
         if (sourceProfileJson && sourceProfileJson === JSON.stringify(editorState.profile)) {
-            showToast('No changes to save', 2000, 'info');
+            showToast(t('No changes to save'), 2000, 'info');
             if (editorState.sourceProfileId) {
                 sessionStorage.setItem('lastEditedProfileKey', editorState.sourceProfileId);
             }
@@ -1585,11 +1596,11 @@ async function saveProfile() {
         // Hint to selector so it pre-selects the profile we just edited.
         sessionStorage.setItem('lastEditedProfileKey', saved.id);
 
-        showToast('Profile saved!', 2000, 'success');
+        showToast(t('Profile saved!'), 2000, 'success');
         setTimeout(() => { loadPage('src/profiles/profile_selector.html'); }, 1000);
     } catch (err) {
         console.error('Profile save failed:', err);
-        showToast(`Save failed: ${err.message}`, 4000, 'error');
+        showToast(`${t('Save failed')}: ${err.message}`, 4000, 'error');
     }
 }
 
@@ -1683,7 +1694,7 @@ async function openVersionHistory() {
         const { getProfileLineage } = await import('./api.js');
         lineage = await getProfileLineage(id);
     } catch (err) {
-        showToast('Could not load version history', 3000, 'error');
+        showToast(t('Could not load version history'), 3000, 'error');
         return;
     }
 
@@ -1692,7 +1703,7 @@ async function openVersionHistory() {
         .filter(r => r.id !== id && r.profile)
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     if (!versions.length) {
-        showToast('No previous versions yet', 2500, 'info');
+        showToast(t('No previous versions yet'), 2500, 'info');
         return;
     }
 
@@ -1718,7 +1729,7 @@ async function openVersionHistory() {
     // Baseline deliberately not reset: a restored version is unsaved work, so
     // Cancel must still warn before throwing it away.
     renderAll();
-    showToast('Restored — Save to keep this version', 3000, 'success');
+    showToast(t('Restored — Save to keep this version'), 3000, 'success');
 }
 
 // ─── Init ───────────────────────────────────────────────────────────────────
@@ -1728,7 +1739,7 @@ export async function initializeProfileEditor() {
     const profileRecord = window.__pendingEditProfile;
     if (!profileRecord) {
         console.warn('[ProfileEditor] No profile data on window.__pendingEditProfile — aborting.');
-        showToast('No profile data found. Returning to selector.', 3000, 'error');
+        showToast(t('No profile data found. Returning to selector.'), 3000, 'error');
         setTimeout(() => { loadPage('src/profiles/profile_selector.html'); }, 1000);
         return;
     }

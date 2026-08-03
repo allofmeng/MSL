@@ -159,7 +159,7 @@
 }
 
 .pe-col-title {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -308,7 +308,7 @@
 }
 
 .pe-panel-title {
-    font-size: 15px;
+    font-size: 26px;
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -340,7 +340,7 @@
 }
 
 .pe-field-sub {
-    font-size: 15px;
+    font-size: 16px;
     color: var(--low-contrast-white);
     margin-top: 2px;
 }
@@ -472,7 +472,7 @@
    column collapsing. */
 .pe-cond-body { flex: 1 1 200px; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
 .pe-cond-label { font-size: 19px; font-weight: 600; }
-.pe-cond-note { font-size: 15px; color: var(--low-contrast-white); line-height: 1.4; }
+.pe-cond-note { font-size: 16px; color: var(--low-contrast-white); line-height: 1.4; }
 .pe-cond-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
 
 /* Rows carrying more than one control stack unconditionally — "Move on if
@@ -509,7 +509,7 @@
     background: var(--box-color);
     border: 1px solid var(--border-color);
 }
-.pe-stat-k { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--low-contrast-white); }
+.pe-stat-k { font-size: 16px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--low-contrast-white); }
 .pe-stat-v { font-size: 24px; font-weight: 700; color: var(--text-primary); }
 
 .pe-set {
@@ -521,7 +521,7 @@
 }
 .pe-set:last-child { border-bottom: none; }
 .pe-set-label { font-size: 19px; font-weight: 600; color: var(--text-primary); }
-.pe-set-hint { font-size: 15px; color: var(--low-contrast-white); }
+.pe-set-hint { font-size: 16px; color: var(--low-contrast-white); }
 
 .pe-input, .pe-select {
     width: 100%;
@@ -615,4 +615,4 @@
 .pe-version-row:hover { border-color: var(--pe-accent); }
 .pe-version-row.is-on { border-color: var(--pe-accent); }
 .pe-version-title { font-size: 19px; font-weight: 600; }
-.pe-version-stamp { font-size: 15px; color: var(--low-contrast-white); }
+.pe-version-stamp { font-size: 16px; color: var(--low-contrast-white); }

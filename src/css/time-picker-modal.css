@@ -134,7 +134,7 @@
     border: none;
     background: transparent;
     color: var(--tpm-text-soft);
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
     opacity: 0.65;
     cursor: pointer;
@@ -208,7 +208,7 @@
     padding: 10px 20px;
     border: none;
     border-radius: 12px;
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
     letter-spacing: 0.4px;
     cursor: pointer;
