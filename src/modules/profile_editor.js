@@ -843,9 +843,17 @@ function renderStepEditor() {
 function renderPreview() {
     renderStats();
 
-    const profile = editorState.profile;
     const graphDiv = document.getElementById('pe-graph');
     if (!graphDiv || typeof Plotly === 'undefined') return;
+
+    const { traces, layout } = buildPreviewFigure();
+    Plotly.react(graphDiv, traces, layout, { responsive: true, displayModeBar: false });
+}
+
+// Traces + layout for the curve, built once and plotted into either the inline
+// preview or the zoom dialog. Split out so the two can never drift apart.
+function buildPreviewFigure() {
+    const profile = editorState.profile;
 
     const isDark = (localStorage.getItem('theme') || 'light') === 'dark';
     const gridColor = isDark ? '#3D4255' : '#E0E0E0';
@@ -953,7 +961,50 @@ function renderPreview() {
         yaxis2: { overlaying: 'y', side: 'right', showgrid: false, linecolor: tempColor, tickcolor: tempColor, tickfont: { color: tempColor }, fixedrange: true, ticksuffix: '°' },
     };
 
-    Plotly.react(graphDiv, traces, layout, { responsive: true, displayModeBar: false });
+    return { traces, layout };
+}
+
+// One tap on the preview blows the curve up to near-full-screen. The inline
+// graph is 330 design px tall next to three columns of controls, which is too
+// small to read a ramp on a tablet. Snapshot, not a live view: it plots the
+// profile as it stands when opened and nothing behind it can change while the
+// modal is up.
+function openGraphZoom() {
+    if (typeof Plotly === 'undefined') return;
+
+    const dlg = document.createElement('dialog');
+    dlg.className = 'pe-dialog pe-zoom';
+
+    const big = el('div', 'pe-zoom-graph');
+    const close = el('button', 'pe-btn pe-btn--primary', t('Close'));
+    close.type = 'button';
+    const body = el('div', 'pe-dialog-body', [
+        big,
+        el('div', 'pe-dialog-actions', close),
+    ]);
+    dlg.appendChild(body);
+
+    function done() {
+        // Purge before removing: Plotly keeps a resize listener per plot, and a
+        // detached div would leak one on every open.
+        try { Plotly.purge(big); } catch (_) {}
+        try { dlg.close(); } catch (_) {}
+        dlg.remove();
+    }
+    close.addEventListener('click', done);
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(); });
+
+    document.body.appendChild(dlg);
+    dlg.showModal();
+
+    // After showModal, so the div has its real size and responsive sizing lands
+    // on the first draw instead of needing a resize.
+    const { traces, layout } = buildPreviewFigure();
+    // At this size there is room to say which line is which.
+    layout.showlegend = true;
+    layout.legend = { orientation: 'h', y: 1.08, x: 0 };
+    layout.margin = { l: 60, r: 60, t: 10, b: 44, pad: 0 };
+    Plotly.newPlot(big, traces, layout, { responsive: true, displayModeBar: false });
 }
 
 function renderStats() {
@@ -1759,6 +1810,22 @@ export async function initializeProfileEditor() {
     renderAll();
 
     document.getElementById('pe-add-step')?.addEventListener('click', addStep);
+
+    // Tap the curve to blow it up. Plotly owns the graph's innards, so the
+    // handler goes on the container and the affordance is spelled out for
+    // screen readers and keyboards rather than left to a hover cursor.
+    const graphDiv = document.getElementById('pe-graph');
+    if (graphDiv) {
+        graphDiv.setAttribute('role', 'button');
+        graphDiv.tabIndex = 0;
+        graphDiv.setAttribute('aria-label', t('Zoom'));
+        graphDiv.title = t('Zoom');
+        graphDiv.addEventListener('click', openGraphZoom);
+        graphDiv.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openGraphZoom(); }
+        });
+    }
+
     document.getElementById('editor-save-btn')?.addEventListener('click', saveProfile);
     document.getElementById('editor-cancel-btn')?.addEventListener('click', cancelEditor);
 

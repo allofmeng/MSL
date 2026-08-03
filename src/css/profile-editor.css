@@ -188,7 +188,7 @@
 .pe-dialog-rows,
 .pe-notes {
     scrollbar-width: auto;
-    scrollbar-color: var(--pe-accent) rgba(128, 128, 128, 0.2);
+    scrollbar-color: rgba(128, 128, 128, 0.65) rgba(128, 128, 128, 0.2);
     scrollbar-gutter: stable;
 }
 
@@ -212,7 +212,7 @@
 .pe-scroll::-webkit-scrollbar-thumb,
 .pe-dialog-rows::-webkit-scrollbar-thumb,
 .pe-notes::-webkit-scrollbar-thumb {
-    background-color: var(--pe-accent);
+    background-color: rgba(128, 128, 128, 0.65);
     background-clip: content-box;
     border: 3px solid transparent;
     border-radius: 10px;
@@ -222,7 +222,7 @@
 .pe-scroll::-webkit-scrollbar-thumb:active,
 .pe-dialog-rows::-webkit-scrollbar-thumb:active,
 .pe-notes::-webkit-scrollbar-thumb:active {
-    background-color: var(--text-primary);
+    background-color: rgba(128, 128, 128, 0.9);
 }
 
 /* ── Step rail ───────────────────────────────────────────────────────────── */
@@ -542,7 +542,8 @@
 
 /* ── Right column: preview + shot settings ───────────────────────────────── */
 
-.pe-graph { width: 100%; height: 330px; }
+.pe-graph { width: 100%; height: 330px; cursor: zoom-in; }
+.pe-graph:focus-visible { outline: 2px solid var(--pe-accent); outline-offset: 4px; }
 
 .pe-stat-row {
     display: flex;
@@ -634,6 +635,12 @@
 .pe-dialog-rows { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow-y: auto; }
 
 .pe-pick { max-width: 720px; }
+
+/* Zoomed curve. Sized in vw/vh, not design px: a <dialog> renders in the top
+   layer, outside the transform scaling.js applies to #scaled-content, so it
+   sees real viewport pixels. */
+.pe-zoom { max-width: 96vw; width: 96vw; margin-top: 3vh; }
+.pe-zoom-graph { width: 100%; height: 72vh; }
 
 /* Step-type picker: the one place a new user learns what a step can be. */
 .pe-pick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
