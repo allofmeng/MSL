@@ -490,6 +490,9 @@ function makeNumpadMockInput(initialValue) {
     };
 }
 
+// Distance a finger may travel before the press is read as a scroll instead.
+const PRESS_MOVE_SLOP = 10;
+
 export function setupPressAndHold(element, clickCallback, longPressCallback, options = {}) {
     if (element.dataset.pressHoldInit) return; // already wired — prevent duplicate listeners on re-init
     element.dataset.pressHoldInit = '1';
@@ -498,6 +501,9 @@ export function setupPressAndHold(element, clickCallback, longPressCallback, opt
 
     let timer;
     let longPressOccurred = false;
+    let scrolled = false;
+    let startX = 0;
+    let startY = 0;
 
     const setActiveRing = (on) => {
         if (on) element.classList.add('long-press-active');
@@ -505,8 +511,18 @@ export function setupPressAndHold(element, clickCallback, longPressCallback, opt
     };
 
     const startPress = (e) => {
-        e.preventDefault();
         longPressOccurred = false;
+        scrolled = false;
+        const touch = e.touches?.[0];
+        if (touch) { startX = touch.clientX; startY = touch.clientY; }
+        // touchstart is deliberately NOT preventDefault()ed. Doing so cancels the
+        // browser's own panning for the whole gesture, which is why the header's
+        // favourites strip would not scroll on the tablet's in-app WebView: every
+        // drag started on a favourite button, and the button ate the pan. Only
+        // mousedown is cancelled (it suppresses desktop text selection and native
+        // drag); the synthetic click that touchstart used to suppress is handled
+        // in the click listener below instead.
+        if (e.type === 'mousedown') e.preventDefault();
         setActiveRing(true);
         timer = setTimeout(() => {
             longPressOccurred = true;
@@ -515,17 +531,26 @@ export function setupPressAndHold(element, clickCallback, longPressCallback, opt
         }, duration);
     };
 
+    // A finger that travels is scrolling, not pressing: drop the long-press timer
+    // and remember that this gesture must not fire a click when it ends. Passive —
+    // it never calls preventDefault, so it can't stall the scroll it is watching.
+    const trackMove = (e) => {
+        const touch = e.touches?.[0];
+        if (!touch || scrolled) return;
+        if (Math.hypot(touch.clientX - startX, touch.clientY - startY) < PRESS_MOVE_SLOP) return;
+        scrolled = true;
+        cancelPress();
+    };
+
     const endPress = (e) => {
         clearTimeout(timer);
         setActiveRing(false);
         if (longPressOccurred) {
             e.preventDefault();
             e.stopPropagation();
-        } else if (e.type === 'touchend') {
-            // preventDefault on touchstart suppressed the synthetic click — fire manually
-            e.preventDefault();
-            clickCallback();
         }
+        // No manual clickCallback() here any more: without the touchstart
+        // preventDefault, the platform fires a real click of its own.
     };
 
     const cancelPress = () => {
@@ -545,17 +570,21 @@ export function setupPressAndHold(element, clickCallback, longPressCallback, opt
     element.addEventListener('mouseleave', cancelPress);
 
     // Touch events
-    element.addEventListener('touchstart', startPress, { passive: false });
+    element.addEventListener('touchstart', startPress, { passive: true });
+    element.addEventListener('touchmove', trackMove, { passive: true });
     element.addEventListener('touchend', endPress);
     element.addEventListener('touchcancel', cancelPress);
 
     element.addEventListener('click', (e) => {
-        if (longPressOccurred) {
+        // Most engines swallow the click after a scroll; `scrolled` covers the
+        // ones that don't, so a flick across the strip can't also fire a profile.
+        if (longPressOccurred || scrolled) {
+            scrolled = false;
             e.preventDefault();
             e.stopPropagation();
-        } else {
-            clickCallback();
+            return;
         }
+        clickCallback();
     });
 }
 
