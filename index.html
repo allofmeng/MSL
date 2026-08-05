@@ -82,11 +82,16 @@
         <!-- DYE2 auto-fav / recipe strip (F & R modes). Filled by src/modules/dyeStrip.js;
              occupies the same slot as the profile nav and is hidden in P mode. -->
         <nav id="dye-strip" class="absolute left-[80px] top-[34px] flex gap-[15px]" aria-label="DYE2 favourites and recipes" style="display:none"></nav>
-        <!-- Right side controls -->
+        <!-- Right side controls. Right-anchored flex row: new buttons are added here and
+             the row grows leftward on its own — no positions to recompute. Budget: the
+             favourite strip ends at x=1290, so the row has ~590px before it collides.
+             Keep additions to 67x67 icon squares (77px each with the gap) rather than
+             165px text buttons once this fills up. -->
         <div class="absolute right-[38px] top-[50px] flex items-center gap-[10px]">
             <button id="cupwarmer-toggle-btn" style="display:none" class="flex justify-center items-center min-h-0 w-[150px] h-[67px] whitespace-nowrap border border-solid border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-[25px] text-[25px] font-semibold" data-i18n-key="Warmer" aria-label="Toggle Cup Warmer" aria-pressed="false" data-fit-text>Warmer</button>
             <!-- DYE: opens the DYE2 plugin dashboard (Figma 2386:893). Wired in dyeStrip.js. -->
             <button id="dye-open-btn" class="flex justify-center items-center min-h-0 w-[120px] h-[67px] whitespace-nowrap border border-solid border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-[25px] text-[26px] font-semibold" aria-label="Open DYE" style="display:none">DYE</button>
+            <button id="profiles-btn" class="settings-button flex justify-center items-center min-h-0 w-[165px] h-[67px] whitespace-nowrap border border-solid border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-[25px] text-[26px] font-semibold" data-i18n-key="Profiles" aria-label="Open Profiles" data-fit-text>Profiles</button>
             <button id="settings-btn" class="settings-button flex justify-center items-center min-h-0 w-[165px] h-[67px] whitespace-nowrap border border-solid border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-[25px] text-[26px] font-semibold" data-i18n-key="Settings" data-fit-text>Settings</button>
             <button id="sleep-button" class="flex justify-center items-center min-h-0 w-[150px] h-[67px] whitespace-nowrap border border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] rounded-[25px] text-[25px] font-semibold" data-i18n-key="Sleep" data-fit-text>Sleep</button>
             <button id="fullscreen-toggle-btn" title="Toggle fullscreen" class="  w-[50px] h-[50px] flex items-center justify-center  border border-[var(--mimoja-blue)] rounded-[10px]  text-[var(--mimoja-blue)]" aria-label="Toggle Fullscreen">

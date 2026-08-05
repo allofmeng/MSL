@@ -220,8 +220,15 @@ body {
     --button-secondary-bg: #e8e8e8;
     --button-secondary-text: #121212;
     /* bg colors in profile editor */
-    --secondary-button-bg:#b6c3d7; 
+    --secondary-button-bg:#b6c3d7;
     --secondary-button-outline:#385a92;
+
+    /* Text that reads as accent in light and as plain near-white in dark.
+       --mimoja-blue can't do this on its own: dark-mode.css turns it into
+       #292c38, a surface colour, so `color: var(--mimoja-blue)` goes almost
+       black on a dark background. Use this for text; keep --mimoja-blue for
+       borders and fills. */
+    --accent-text: var(--mimoja-blue);
 }
 
 [data-theme='dark'] {
@@ -261,6 +268,7 @@ body {
     --button-primary-text: #e8e8e8;
     --button-secondary-bg: #292c38;
     --button-secondary-text: #e8e8e8;
+    --accent-text: var(--text-primary);   /* #e8e8e8 */
 }
 
 /* In-app webview: the host OS owns fullscreen, so the toggle is dead weight on
@@ -505,4 +513,57 @@ body {
 }
 [data-theme='dark'] .pe-save-dialog::backdrop {
   background: rgba(0, 0, 0, 0.55);
+}
+/* Profile selector heading + RESET / EDIT: accent in light, near-white in dark.
+   Written here rather than as a text-[…] class on the elements because app.css
+   is a pre-built Tailwind bundle — an arbitrary utility whose value isn't
+   already compiled into it produces no rule at all. */
+#selected_profile_name,
+#reset_btn,
+#edit_profile {
+  color: var(--accent-text);
+}
+
+/* Favourites strip: five fixed buttons, then the most-used non-favourite
+   profiles appended by profileManager.renderFrequentProfiles(). The viewport is
+   exactly the five favourites (5x240 + 4x15 gaps = 1260), so the extras live
+   off the right edge and are reached by dragging the strip leftwards.
+
+   overflow-y is hidden, not auto: the buttons are the full height of the strip,
+   and an auto vertical axis lets a stray touch drag them out of the header.
+   The scrollbar itself is hidden — on the machine's touchscreen it is a
+   permanent grey smear under the buttons and nobody drags it. .has-overflow
+   (set only when extras exist) fades the right edge instead, so there is
+   something to see before you swipe; .at-end drops the fade once you're
+   there. */
+#profile-fav-nav {
+  width: 1260px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+#profile-fav-nav::-webkit-scrollbar {
+  display: none;
+}
+
+/* Buttons carry w-[240px] but are flex items in a scroller: without a fixed
+   basis they get squeezed to share 1260px between all of them. */
+#profile-fav-nav > button {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+#profile-fav-nav.has-overflow:not(.at-end) {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent 100%);
+}
+
+/* Frequent (non-favourite) buttons: same footprint as a favourite so the row
+   keeps its rhythm, quieter border so the five real favourites still read as
+   the primary set. */
+.frequent-profile-btn {
+  opacity: 0.92;
 }

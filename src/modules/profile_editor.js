@@ -51,6 +51,9 @@ let editorState = {
     sourceProfileRecord: null,
     profile: null,
     selectedStep: 0,
+    // Title of the panel the user last touched, so the highlight survives the
+    // renderStepEditor() that a toggle inside that same panel triggers.
+    focusedPanel: null,
 };
 
 // IDs of profiles persisted to the server via share-code import during a
@@ -200,8 +203,7 @@ function el(tag, className, content) {
 
 // Icons are inline SVG paths so they inherit currentColor and need no font.
 const ICONS = {
-    up: '<path d="M12 19V5M5 12l7-7 7 7"/>',
-    down: '<path d="M12 5v14M19 12l-7 7-7-7"/>',
+    grip: '<path d="M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01" stroke-width="3"/>',
     copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
     trash: '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
@@ -399,11 +401,33 @@ function conditionRow({ on, label, note, controls, onToggle }) {
 }
 
 function panel(title, hint, children) {
-    return el('div', 'pe-panel', [
+    // The title doubles as the panel's identity: it's what the focus highlight
+    // is restored from after a rebuild (see attachPanelFocus).
+    const node = el('div', `pe-panel${title === editorState.focusedPanel ? ' is-focused' : ''}`, [
         el('div', 'pe-panel-head', el('span', 'pe-panel-title', title)),
         hint ? el('p', 'pe-hint', hint) : null,
         ...children.filter(Boolean),
     ]);
+    node.dataset.panelTitle = title;
+    return node;
+}
+
+// Lift the panel the user is working in out of the page background, so at a
+// glance it's clear which group of controls has their attention.
+//
+// pointerdown rather than :focus-within alone: tapping a value here opens the
+// numpad modal, which takes focus out of the panel immediately, and on iOS a
+// tap doesn't focus a button at all. :focus-within stays in the CSS for the
+// keyboard path. Delegated from the static container, so it survives the
+// innerHTML rebuilds renderStepEditor() does.
+function attachPanelFocus(host) {
+    host.addEventListener('pointerdown', (e) => {
+        const panelEl = e.target.closest('.pe-panel');
+        if (!panelEl || !host.contains(panelEl)) return;
+        editorState.focusedPanel = panelEl.dataset.panelTitle || null;
+        for (const p of host.querySelectorAll('.pe-panel.is-focused')) p.classList.remove('is-focused');
+        panelEl.classList.add('is-focused');
+    });
 }
 
 function field(labelText, control, sub) {
@@ -453,6 +477,101 @@ function moveStep(from, to) {
     else if (from > to && marked >= to && marked < from) marked += 1;
     p.target_volume_count_start = marked + 1;
     return true;
+}
+
+// ─── Drag-to-reorder ────────────────────────────────────────────────────────
+//
+// Pointer events, not the HTML5 drag-and-drop API: this UI runs on the
+// machine's touchscreen, where dragstart/drop never fire.
+//
+// The card follows the pointer and the list re-flows live underneath it, so a
+// step can be taken from anywhere to anywhere in one gesture. The target index
+// is recomputed from the whole list on every move (count the neighbours whose
+// midpoint the pointer has passed) rather than by swapping with the neighbour
+// being crossed — a fast flick past three cards lands three positions down
+// instead of one.
+//
+// Only the DOM moves during the drag; the model is updated once on release,
+// because moveStep() also has to carry target_volume_count_start along and
+// re-running that per pointermove would rewrite it dozens of times per drag.
+//
+// The pointer is captured on the handle, which travels inside the card, so
+// re-inserting the card mid-drag doesn't break the gesture. clientY compares
+// cleanly against getBoundingClientRect() — both are post-transform viewport
+// coordinates under scaling.js's CSS transform. The translateY that keeps the
+// card under the finger is NOT: it's applied inside that transform, so the
+// viewport-space delta has to be divided by the scale factor or the card
+// outruns (or trails) the finger by however much the page is scaled.
+//
+// ponytail: no edge autoscroll — the rail shows ~9 cards and profiles longer
+// than that are rare. Add it if long profiles start showing up.
+function attachStepDrag(handle, card, index) {
+    handle.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();   // the handle is inside the card; don't also select it
+        const list = card.parentElement;
+        if (!list || list.children.length < 2) return;
+
+        handle.setPointerCapture(e.pointerId);
+        card.classList.add('is-dragging');
+
+        const startRect = card.getBoundingClientRect();
+        const scale = card.offsetHeight ? startRect.height / card.offsetHeight : 1;
+        const grabOffset = e.clientY - startRect.top;   // where in the card the finger landed
+
+        const onMove = (ev) => {
+            // Where should the card sit now? One past every other card whose
+            // midpoint is above the pointer.
+            const others = [...list.children].filter((c) => c !== card);
+            let target = 0;
+            for (const other of others) {
+                const r = other.getBoundingClientRect();
+                if (ev.clientY > r.top + r.height / 2) target++;
+            }
+            const ref = others[target] || null;
+            if (ref !== card.nextElementSibling) list.insertBefore(card, ref);
+
+            // Re-measure with the offset cleared: the insert above just moved the
+            // card's own slot, so last frame's translate is against a stale origin.
+            card.style.transform = '';
+            const rect = card.getBoundingClientRect();
+            card.style.transform = `translateY(${(ev.clientY - grabOffset - rect.top) / scale}px)`;
+        };
+
+        const onEnd = (ev) => {
+            card.style.transform = '';
+            handle.removeEventListener('pointermove', onMove);
+            handle.removeEventListener('pointerup', onEnd);
+            handle.removeEventListener('pointercancel', onEnd);
+            if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
+            card.classList.remove('is-dragging');
+
+            const to = [...list.children].indexOf(card);
+            // renderAll() either way: on a real move it renumbers and repaints the
+            // curve, on a no-op it puts back the card this handler shuffled.
+            if (to !== index && to >= 0 && moveStep(index, to)) editorState.selectedStep = to;
+            renderAll();
+        };
+
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onEnd);
+        handle.addEventListener('pointercancel', onEnd);
+    });
+
+    // A drag handle is unreachable without a pointer, and the arrow buttons it
+    // replaced were the only keyboard path to reordering.
+    handle.addEventListener('keydown', (e) => {
+        const to = e.key === 'ArrowUp' ? index - 1 : e.key === 'ArrowDown' ? index + 1 : null;
+        if (to === null) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!moveStep(index, to)) return;
+        editorState.selectedStep = to;
+        renderAll();
+        // The rail was rebuilt; focus the same step's handle so a second press
+        // keeps moving the same card.
+        document.querySelector(`#pe-step-list > :nth-child(${to + 1}) .pe-drag-handle`)?.focus();
+    });
 }
 
 /** A new step seeded from a preset, inheriting temperature from its neighbour. */
@@ -528,10 +647,21 @@ function renderRail() {
         card.appendChild(el('div', 'pe-step-name', step.name || `${t('Step')} ${index + 1}`));
         card.appendChild(el('div', 'pe-step-sum', summariseStep(step)));
 
+        // Drag handle, on every card rather than only the selected one: reordering
+        // shouldn't cost a select-then-drag. Lives outside .pe-step-tools so it
+        // isn't hidden with them.
+        const handle = el('div', 'pe-drag-handle');
+        handle.appendChild(icon('grip'));
+        handle.setAttribute('role', 'button');
+        handle.tabIndex = 0;
+        handle.setAttribute('aria-label', `${t('Move up')} / ${t('Move down')} — ${t('Step')} ${index + 1}`);
+        handle.setAttribute('aria-keyshortcuts', 'ArrowUp ArrowDown');
+        handle.title = t('Drag to reorder');
+        attachStepDrag(handle, card, index);
+        card.appendChild(handle);
+
         const tools = el('div', 'pe-step-tools');
         tools.append(
-            iconButton('up', t('Move up'), () => { if (moveStep(index, index - 1)) { editorState.selectedStep = index - 1; renderAll(); } }, { disabled: index === 0 }),
-            iconButton('down', t('Move down'), () => { if (moveStep(index, index + 1)) { editorState.selectedStep = index + 1; renderAll(); } }, { disabled: index === steps.length - 1 }),
             iconButton('copy', t('Duplicate'), () => { insertStepAt(index + 1, deepCopy(step)); editorState.selectedStep = index + 1; renderAll(); }),
             iconButton('trash', t('Delete'), async () => {
                 if (!await promptConfirm({
@@ -1810,6 +1940,9 @@ export async function initializeProfileEditor() {
     renderAll();
 
     document.getElementById('pe-add-step')?.addEventListener('click', addStep);
+
+    const stepEditorHost = document.getElementById('pe-step-editor');
+    if (stepEditorHost) attachPanelFocus(stepEditorHost);
 
     // Tap the curve to blow it up. Plotly owns the graph's innards, so the
     // handler goes on the container and the affordance is spelled out for

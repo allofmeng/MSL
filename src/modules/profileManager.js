@@ -433,6 +433,28 @@ export async function saveGrindToActiveProfile(grindValue) {
 // box. dui has no shrink-to-fit, so neither do we; long titles wrap and, past
 // what fits, clip. Size and wrap width live in index.html on the buttons.
 
+// Button label for a profile title: translated, with category prefixes stripped
+// so a long "category / name" doesn't get shrunk illegibly small on a button.
+function buttonLabelForTitle(title) {
+    let label = translateProfileTitle(title);
+    // Any " / " (space-slash-space) is a category delimiter — keep only the tail.
+    // Covers "A. Espresso-Advanced /", "A-Flow /", "B. Espresso-Pressure /" etc.
+    if (label && label.includes(' / ')) {
+        label = label.split(' / ').pop();
+    }
+    // Strip short uppercase tag prefix like "GHC/", "DE1/" without spaces.
+    // Requires 2+ uppercase/digit chars so "A/B testing" or "Light/Medium" stay intact.
+    if (label) {
+        label = label.replace(/^[A-Z][A-Z0-9]+\s*\/\s*/, '');
+    }
+    // Any remaining "/" (e.g. "Tea portafilter/Yunnan green") is a category
+    // delimiter too.
+    if (label && label.includes('/')) {
+        label = label.split('/').pop().trim();
+    }
+    return label;
+}
+
 export function updateButtonUI() {
     const mainPage = document.getElementById('main-page');
     if (mainPage && mainPage.style.display === 'none') return;
@@ -442,24 +464,7 @@ export function updateButtonUI() {
         const profileRecord = availableProfiles[profileKey];
 
         if (button && profileRecord && profileRecord.profile) {
-            let translatedTitle = translateProfileTitle(profileRecord.profile.title);
-            // Strip category prefix: any " / " (space-slash-space) is treated as a
-            // category delimiter — keep only the tail. Covers "A. Espresso-Advanced /",
-            // "A-Flow /", "B. Espresso-Pressure /" etc.
-            if (translatedTitle && translatedTitle.includes(' / ')) {
-                translatedTitle = translatedTitle.split(' / ').pop();
-            }
-            // Strip short uppercase tag prefix like "GHC/", "DE1/" without spaces.
-            // Requires 2+ uppercase/digit chars so "A/B testing" or "Light/Medium" stay intact.
-            if (translatedTitle) {
-                translatedTitle = translatedTitle.replace(/^[A-Z][A-Z0-9]+\s*\/\s*/, '');
-            }
-            // Any remaining "/" (e.g. "Tea portafilter/Yunnan green") is treated as a
-            // category delimiter too — keep only the tail so long category+name
-            // combos don't get shrunk illegibly small on the button.
-            if (translatedTitle && translatedTitle.includes('/')) {
-                translatedTitle = translatedTitle.split('/').pop().trim();
-            }
+            const translatedTitle = buttonLabelForTitle(profileRecord.profile.title);
             button.textContent = translatedTitle || 'Untitled';
             if (activeProfileId && profileKey === activeProfileId) {
                 button.classList.remove('text-[var(--mimoja-blue)]', 'text-[var(--profile-button-text-color)]', 'bg-[var(--profile-button-background-color)]');
@@ -474,6 +479,112 @@ export function updateButtonUI() {
             button.classList.remove('text-white', 'bg-[var(--mimoja-blue-v2)]');
             button.classList.add('text-[var(--mimoja-blue)]', 'text-[var(--profile-button-text-color)]', 'bg-[var(--profile-button-background-color)]');
         }
+    }
+    paintFrequentButtons();
+}
+
+// ─── Frequent-profiles strip ────────────────────────────────────────────────
+//
+// The favourites nav scrolls horizontally; past the five favourites sit the
+// profiles pulled most often that aren't on a favourite button. Same nav, so
+// one swipe carries you from the fixed five into the overflow — see the
+// #profile-fav-nav rules in main.css for the scroll container.
+//
+// Counted from the last FREQUENT_SHOT_LIMIT shots with no date cutoff (unlike
+// autoPopulateFavoritesFromHistory's three-week window, which is about picking
+// what's *current*; this strip is about what you actually reach for). A profile
+// has to appear at least FREQUENT_MIN_USES times to earn a slot — one-off
+// experiments would otherwise fill the strip.
+const FREQUENT_MIN_USES = 2;
+const FREQUENT_SHOT_LIMIT = 200;
+const FREQUENT_BTN_CLASS = 'frequent-profile-btn flex justify-center items-center text-balance px-3 leading-tight line-clamp-2 [overflow-wrap:anywhere] border-[var(--border-color)] bg-[var(--profile-button-background-color)] text-[var(--profile-button-text-color)] w-[240px] h-[98px] text-[22px] rounded-[19px] border-2 font-semibold no-select';
+let frequentButtons = [];
+
+// Labels and active state only — cheap enough to run from updateButtonUI on
+// every language change and every profile switch.
+function paintFrequentButtons() {
+    for (const button of frequentButtons) {
+        const key = button.dataset.profileKey;
+        const record = availableProfiles[key];
+        if (!record?.profile) continue;
+        button.textContent = buttonLabelForTitle(record.profile.title) || 'Untitled';
+        if (activeProfileId && key === activeProfileId) {
+            button.classList.remove('text-[var(--profile-button-text-color)]', 'bg-[var(--profile-button-background-color)]');
+            button.classList.add('text-white', 'bg-[var(--mimoja-blue-v2)]');
+        } else {
+            button.classList.remove('text-white', 'bg-[var(--mimoja-blue-v2)]');
+            button.classList.add('text-[var(--profile-button-text-color)]', 'bg-[var(--profile-button-background-color)]');
+        }
+    }
+}
+
+// Rebuild the strip. Call after anything that changes which profiles are on a
+// favourite button; the counts themselves only move when a shot is pulled, and
+// the page reloads often enough (Decaid unloads the WebView after 10 minutes
+// backgrounded) that recounting per shot isn't worth a history subscription.
+// ponytail: no live recount — add one if the strip starts feeling stale.
+export async function renderFrequentProfiles() {
+    const nav = document.getElementById('profile-fav-nav');
+    if (!nav) return;
+
+    for (const button of frequentButtons) button.remove();
+    frequentButtons = [];
+
+    let shots = [];
+    try {
+        const data = await getShots({ limit: FREQUENT_SHOT_LIMIT, order: 'desc' });
+        shots = data.items ?? [];
+    } catch (e) {
+        logger.warn('renderFrequentProfiles: could not fetch shots', e);
+        nav.classList.remove('has-overflow');
+        return;
+    }
+
+    const onFavourite = new Set(Object.values(favoriteAssignments).filter(Boolean));
+    const freq = new Map();
+    for (const shot of shots) {
+        const title = shot.workflow?.profile?.title;
+        if (!title) continue;
+        const key = findProfileKeyByTitle(title);   // drops profiles that no longer exist
+        if (!key || onFavourite.has(key)) continue;
+        freq.set(key, (freq.get(key) || 0) + 1);
+    }
+
+    const ranked = [...freq.entries()]
+        .filter(([, count]) => count >= FREQUENT_MIN_USES)
+        .sort((a, b) => b[1] - a[1]);
+
+    logger.info('renderFrequentProfiles:', ranked.map(([k, n]) => ({
+        title: availableProfiles[k]?.profile?.title, count: n,
+    })));
+
+    for (const [key, count] of ranked) {
+        const button = document.createElement('button');
+        button.className = FREQUENT_BTN_CLASS;
+        button.dataset.profileKey = key;
+        button.setAttribute('aria-label',
+            `${availableProfiles[key]?.profile?.title || 'Profile'} — ${count}×`);
+        button.title = `${count}×`;
+        button.addEventListener('click', () => {
+            applyProfileToMachine(key, button)
+                .catch(err => logger.error('frequent profile click failed', err));
+        });
+        nav.appendChild(button);
+        frequentButtons.push(button);
+    }
+
+    nav.classList.toggle('has-overflow', frequentButtons.length > 0);
+    paintFrequentButtons();
+
+    // Drop the right-edge fade once the strip is scrolled to its end, so the
+    // last button isn't permanently dimmed. Bound once; the listener outlives
+    // the buttons it was added for.
+    if (!nav.dataset.overflowFadeBound) {
+        nav.dataset.overflowFadeBound = '1';
+        nav.addEventListener('scroll', () => {
+            const atEnd = nav.scrollLeft >= nav.scrollWidth - nav.clientWidth - 1;
+            nav.classList.toggle('at-end', atEnd);
+        }, { passive: true });
     }
 }
 
@@ -510,9 +621,16 @@ async function handleProfileClick(index) {
         return;
     }
 
+    return applyProfileToMachine(favoriteAssignments[index], favoriteButtons[index]);
+}
+
+// Send a profile to the machine and pull the main-page UI in behind it. Split out
+// of handleProfileClick so the frequent-profiles strip (which has no favourite
+// index) drives exactly the same path instead of a parallel copy of it.
+async function applyProfileToMachine(profileKey, button) {
     // Add a unique identifier to track this specific call
     const callId = Date.now() + Math.random();
-    logger.info(`handleProfileClick called with index ${index}, callId: ${callId}, profileUpdateInProgress: ${profileUpdateInProgress}`);
+    logger.info(`applyProfileToMachine called with key ${profileKey}, callId: ${callId}, profileUpdateInProgress: ${profileUpdateInProgress}`);
 
     // Check the global flag to prevent duplicate execution
     if (profileUpdateInProgress) {
@@ -523,17 +641,18 @@ async function handleProfileClick(index) {
     // Set the global flag to indicate a profile update is in progress
     profileUpdateInProgress = true;
 
-    // Get the button element to apply waiting state
-    const button = favoriteButtons[index];
-
     // Apply waiting state to the button by replacing the background class
     if (button) {
         button.classList.remove('bg-[var(--profile-button-background-color)]');
         button.classList.add('bg-[var(--fav-button-wait)]');
     }
 
-    const profileKey = favoriteAssignments[index];
     const profileRecord = availableProfiles[profileKey];
+    if (!profileRecord?.profile) {
+        profileUpdateInProgress = false;
+        logger.warn(`applyProfileToMachine: no profile record for key ${profileKey}`);
+        return;
+    }
 
     const profile = profileRecord.profile;
 
@@ -582,21 +701,11 @@ async function handleProfileClick(index) {
 
             activeProfileId = profileKey;
 
-            favoriteButtons.forEach((btn, i) => {
-                const activeBgClass = 'bg-[var(--mimoja-blue-v2)]';
-                const activeTextClass = 'text-white';
-                const inactiveTextClass = 'text-[var(--mimoja-blue)]';
-                const defaultTextClass = 'text-[var(--profile-button-text-color)]';
-                const defaultBgClass = 'bg-[var(--profile-button-background-color)]';
-
-                if (i === index) {
-                    btn.classList.add(activeBgClass, activeTextClass);
-                    btn.classList.remove(inactiveTextClass, defaultTextClass, defaultBgClass);
-                } else {
-                    btn.classList.remove(activeBgClass, activeTextClass);
-                    btn.classList.add(inactiveTextClass, defaultTextClass, defaultBgClass);
-                }
-            });
+            // updateButtonUI() already paints the active state by comparing each
+            // button's profile key against activeProfileId, and it covers the
+            // frequent strip too — which the old index-based loop here could not,
+            // since a frequent button has no favourite index.
+            updateButtonUI();
         } else {
             logger.warn(`Profile may not have been set correctly (callId: ${callId}). Response did not match expected profile.`);
         }
@@ -650,6 +759,9 @@ export async function assignProfile(buttonIndex, profileKey) {
     favoriteAssignments[buttonIndex] = profileKey;
     await saveAssignments();
     updateButtonUI();
+    // The profile just promoted to a favourite has to drop out of the frequent
+    // strip, or it sits on the header twice.
+    renderFrequentProfiles().catch(e => logger.warn('frequent strip refresh failed', e));
     document.getElementById('profile_modal')?.close();
     return 'assigned';
 }
@@ -700,6 +812,9 @@ function openFavoriteContextMenu(button, index) {
                 favoriteAssignments[index] = null;
                 await saveAssignments();
                 updateButtonUI();
+                // Freed from its favourite slot, the profile is eligible for the
+                // frequent strip again.
+                renderFrequentProfiles().catch(e => logger.warn('frequent strip refresh failed', e));
                 showToast(`Favorite ${index + 1} cleared`, 2000, 'info');
             } },
         ]
@@ -1073,6 +1188,10 @@ export async function init() {
             });
             fileInput.addEventListener('change', handleProfileUpload);
         }
+
+        // Not awaited: the strip is an extra that costs a shots fetch, and the
+        // five favourites must not wait on it to become usable.
+        renderFrequentProfiles().catch(e => logger.warn('frequent strip build failed', e));
 
     } catch (error) {
         logger.error('CRITICAL: Error during Profile Manager initialization:', error);

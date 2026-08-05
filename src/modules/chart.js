@@ -368,6 +368,13 @@ export function refreshLabelMargin() {
     // visible effect while hidden, and every streamline:languagechange fires
     // this unconditionally regardless of which page is actually showing.
     if (element.offsetParent === null) return;
+    // Never drawn yet. initChart() deliberately skips the first newPlot (see its
+    // comment), so between boot and the first plotHistoricalShot/clearChart the
+    // div is visible but has no Plotly graph on it -- relayout then dereferences
+    // gd._fullLayout and throws "Cannot read properties of undefined (reading
+    // '_guiEditing')". initI18n's streamline:languagechange fires in exactly that
+    // window. _fullLayout is Plotly's own "has been drawn" marker.
+    if (!element._fullLayout) return;
 
     // Find current data max across labelled traces.
     let dataMax = 0;

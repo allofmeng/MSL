@@ -1970,6 +1970,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             );
         }
 
+        // Header profiles button — same destination as the favourite-button context
+        // menu's "Browse Profiles", minus the pendingAssignmentIndex, so CONFIRM just
+        // sets the next shot's profile instead of writing a favourite slot.
+        const profilesBtn = document.getElementById('profiles-btn');
+        if (profilesBtn) {
+            profilesBtn.addEventListener('click', () => {
+                sessionStorage.removeItem('pendingAssignmentIndex');
+                loadPage('src/profiles/profile_selector.html');
+            });
+        }
+
         // Add event listener for the settings button
         const settingsBtn = document.getElementById('settings-btn');
         if (settingsBtn) {

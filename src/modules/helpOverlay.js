@@ -43,6 +43,7 @@ const PAGES = {
         { sel: '#ghc-controls', title: 'Machine controls', tip: 'Coffee, Water, Steam, Flush — and Stop.' },
         { sel: '#shot-history-panel', title: 'Shot history', tip: 'Use the arrows to browse past shots.' },
         { sel: '#sleep-button', title: 'Sleep', tip: 'Put the machine to sleep.' },
+        { sel: '#profiles-btn', title: 'Profiles', tip: 'Browse, edit and pick your espresso profiles.' },
         { sel: '#settings-btn', title: 'Settings', tip: 'Open the settings page.' },
         { sel: '#fullscreen-toggle-btn', title: 'Fullscreen', tip: 'Toggle fullscreen mode.' },
     ],

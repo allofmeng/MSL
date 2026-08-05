@@ -58,11 +58,17 @@
         <div id="right-panel" class="flex flex-col bg-[var(--profile-button-background-color)]" role="main" aria-label="Profile Details">
             <div class="flex justify-between items-center profile-selector-bg pl-[54px] pr-[30px]">
                 <div class="flex items-center gap-4 h-[121.5px]">
-                    <h2 class="text-[30px] font-bold text-[var(--mimoja-blue)]" id = 'selected_profile_name' aria-live="polite">Pick a profile</h2>
+                    <!-- Colour from #selected_profile_name in main.css, same reason as
+                         the RESET/EDIT buttons below. -->
+                    <h2 class="text-[30px] font-bold" id = 'selected_profile_name' aria-live="polite">Pick a profile</h2>
                 </div>
                 <div class="flex space-x-4">
-                    <button id = "reset_btn" class="bg-[var(--profile-button-background-color)] border-2 border-[#c9c9c9] text-[var(--mimoja-blue)] font-semibold rounded-[15px] text-[19.5px] w-[150px] h-[82.5px] px-[45px] py-[15px] flex items-center justify-center" data-i18n-key="RESET">RESET</button>
-                    <button id='edit_profile' class="bg-[var(--profile-button-background-color)] border-2 border-[#c9c9c9] text-[var(--mimoja-blue)] font-semibold rounded-[15px] text-[19.5px] w-[150px] h-[82.5px] px-[45px] py-[15px] flex items-center justify-center" data-i18n-key="EDIT">EDIT</button>
+                    <!-- Text colour comes from the #reset_btn/#edit_profile rule in
+                         main.css (var(--accent-text)), not a text-[…] utility: app.css
+                         is a pre-built Tailwind bundle, so an arbitrary value that
+                         isn't already compiled into it silently does nothing. -->
+                    <button id = "reset_btn" class="bg-[var(--profile-button-background-color)] border-2 border-[#c9c9c9] font-semibold rounded-[15px] text-[19.5px] w-[150px] h-[82.5px] px-[45px] py-[15px] flex items-center justify-center" data-i18n-key="RESET">RESET</button>
+                    <button id='edit_profile' class="bg-[var(--profile-button-background-color)] border-2 border-[#c9c9c9] font-semibold rounded-[15px] text-[19.5px] w-[150px] h-[82.5px] px-[45px] py-[15px] flex items-center justify-center" data-i18n-key="EDIT">EDIT</button>
                 </div>
             </div>
             <div id="profile-chart-wrap" class="border-t profile-selector-bg border-b  p-4">
