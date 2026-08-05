@@ -408,13 +408,13 @@ function wireOnce() {
     window.addEventListener('pageshow', () => { repoll(); setTimeout(repoll, 500); });
 }
 
-// Reveal the DYE2 UI: shift the profile nav right to make room, show the toggle +
-// DYE button, wire listeners, load KV data, restore the saved P/F/R mode.
+// Reveal the DYE2 UI: show the toggle + DYE button, wire listeners, load KV
+// data, restore the saved P/F/R mode. Nothing to reposition — the header is a
+// flex row (main.css), so revealing the toggle and the DYE button takes width
+// from the favourites strip on its own.
 export async function enableDye2Ui() {
-    const profileNav = document.getElementById('profile-fav-nav');
     const toggle = document.getElementById('dye-strip-toggle');
     const dyeBtn = document.getElementById('dye-open-btn');
-    if (profileNav) { profileNav.classList.remove('left-[30px]'); profileNav.classList.add('left-[80px]'); }
     if (toggle) toggle.style.display = '';   // revert to class-defined flex
     if (dyeBtn) dyeBtn.style.display = '';
     wireOnce();
@@ -424,8 +424,8 @@ export async function enableDye2Ui() {
     setStripMode(saved);
 }
 
-// Restore the stock header: hide the toggle + DYE button + strip and move the
-// profile nav back to its original position (byte-identical to stock MSL).
+// Restore the stock header: hide the toggle + DYE button + strip. The favourites
+// strip reclaims their width by itself once they are out of the flex row.
 export function disableDye2Ui() {
     const profileNav = document.getElementById('profile-fav-nav');
     const toggle = document.getElementById('dye-strip-toggle');
@@ -434,11 +434,7 @@ export function disableDye2Ui() {
     if (toggle) toggle.style.display = 'none';
     if (dyeBtn) dyeBtn.style.display = 'none';
     if (dyeStrip) { dyeStrip.style.display = 'none'; dyeStrip.innerHTML = ''; }
-    if (profileNav) {
-        profileNav.style.display = '';
-        profileNav.classList.remove('left-[80px]');
-        profileNav.classList.add('left-[30px]');
-    }
+    if (profileNav) profileNav.style.display = '';
 }
 
 export async function initDyeStrip() {

@@ -67,9 +67,50 @@
 }
 
 /* The header is a fixed 168px band. Without shrink:0 it is a shrinkable flex item,
-   and any overshoot in the growing chart below squeezes it to ~1px instead. */
+   and any overshoot in the growing chart below squeezes it to ~1px instead.
+
+   It is also a flex ROW internally. It used to position its two clusters
+   absolutely — favourites pinned left, controls pinned right — which meant
+   neither could see the other: turning on the optional buttons (Bengle's
+   Warmer, DYE, then Profiles) grew the right cluster leftwards until it drew
+   straight over the favourite buttons. In flow, the strip simply yields the
+   width instead, and since it scrolls (see #profile-fav-nav below) the
+   favourites it can no longer fit are one swipe away rather than lost.
+
+   The children's old top offsets (34px for the 98px-tall strip, 50px for the
+   67px-tall controls) were both vertical centring by hand, so align-items
+   reproduces their exact position. */
 #main-page > header {
     flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-left: 30px;
+    padding-right: 38px;
+}
+
+/* Kill the absolute positioning these carried in the markup. Left in place as
+   `position: static` overrides rather than by deleting every left-[…]/top-[…]
+   utility, because dyeStrip.js still adds and removes left-[30px]/left-[80px]
+   on the nav; static makes those inert instead of load-bearing. */
+#main-page > header > #dye-strip-toggle,
+#main-page > header > #profile-fav-nav,
+#main-page > header > #dye-strip,
+#main-page > header > #header-controls {
+    position: static;
+}
+
+/* The DYE2 mode toggle sat at x=18, 12px left of the strip's 30px. Negative
+   margin keeps that while the header's own padding still governs where the
+   favourites start when the toggle is hidden. */
+#main-page > header > #dye-strip-toggle {
+    flex: 0 0 auto;
+    margin-left: -12px;
+}
+
+#main-page > header > #header-controls {
+    flex: 0 0 auto;
+    margin-left: auto;   /* stay pinned right when the strip is narrower than its max */
 }
 
 /* min-height:0 lets the column shrink past its content instead of overflowing
@@ -536,8 +577,19 @@ body {
    (set only when extras exist) fades the right edge instead, so there is
    something to see before you swipe; .at-end drops the fade once you're
    there. */
+#profile-fav-nav,
+#dye-strip {
+  /* Takes the width the right-hand controls leave, capped at the five
+     favourites (5x240 + 4x15 = 1260) so nothing spreads out when there is
+     room to spare. min-width:0 is what actually lets it shrink — a flex item
+     defaults to min-width:auto, i.e. never smaller than its content, which
+     would push the controls off the header instead. */
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 1260px;
+}
+
 #profile-fav-nav {
-  width: 1260px;
   overflow-x: auto;
   overflow-y: hidden;
   scroll-snap-type: x proximity;
