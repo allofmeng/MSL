@@ -565,10 +565,19 @@ export async function renderFrequentProfiles() {
         button.setAttribute('aria-label',
             `${availableProfiles[key]?.profile?.title || 'Profile'} — ${count}×`);
         button.title = `${count}×`;
-        button.addEventListener('click', () => {
-            applyProfileToMachine(key, button)
-                .catch(err => logger.error('frequent profile click failed', err));
-        });
+        // Same gesture split as the favourites: tap sends the profile, long press
+        // opens its menu. setupPressAndHold guards itself with a dataset flag, and
+        // these buttons are created fresh on every rebuild, so there is no cloning
+        // dance to undo here the way there is in init().
+        button.classList.add('has-context-menu');
+        setupPressAndHold(
+            button,
+            () => {
+                applyProfileToMachine(key, button)
+                    .catch(err => logger.error('frequent profile click failed', err));
+            },
+            () => openFrequentContextMenu(button, key),
+        );
         nav.appendChild(button);
         frequentButtons.push(button);
     }
@@ -789,6 +798,47 @@ function openProfileSelectionModal(buttonIndex) {
     }
 
     modal.showModal();
+}
+
+// Long-press menu for a frequent-strip button. Deliberately shorter than the
+// favourites' menu: these buttons are derived from shot history rather than
+// chosen, so there is nothing to clear or replace — only "edit it" and "promote
+// it to a favourite".
+function openFrequentContextMenu(button, profileKey) {
+    const profileRecord = availableProfiles[profileKey];
+    if (!profileRecord?.profile) return;
+    const title = translateProfileTitle(profileRecord.profile.title);
+
+    // First empty slot, or null when all five are taken.
+    let freeSlot = null;
+    for (let i = 0; i < FAV_COUNT; i++) {
+        const key = favoriteAssignments[i];
+        if (!key || !availableProfiles[key]) { freeSlot = i; break; }
+    }
+
+    openContextMenu(button, [
+        { label: `${getTranslation('Edit')} "${title}"`, onSelect: () => {
+            window.__pendingEditProfile = profileRecord;
+            loadPage('src/profiles/profile_editor.html');
+        } },
+        { label: freeSlot === null
+            ? getTranslation('Assign favourite')
+            : `${getTranslation('Assign favourite')} ${freeSlot + 1}`,
+          onSelect: async () => {
+            // No free slot: send them to the selector rather than silently
+            // overwriting a favourite they picked on purpose.
+            if (freeSlot === null) {
+                showToast(getTranslation('All favourites are taken — pick one to replace'), 3000, 'info');
+                loadPage('src/profiles/profile_selector.html');
+                return;
+            }
+            const result = await assignProfile(freeSlot, profileKey);
+            // 'rejected' means assignProfile already showed its own error toast.
+            if (result === 'assigned') {
+                showToast(`${title} → ${getTranslation('Assign favourite')} ${freeSlot + 1}`, 2000, 'info');
+            }
+        } },
+    ]);
 }
 
 function openFavoriteContextMenu(button, index) {
