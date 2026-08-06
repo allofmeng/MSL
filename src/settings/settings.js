@@ -4700,28 +4700,22 @@ function compareVersions(a, b) {
     return 0;
 }
 
-// owner/repo for a skin from the bridge's install metadata, or null when it wasn't
-// installed from a GitHub release.
+// owner/repo for a skin from the bridge's install metadata, or MSL's own repo as
+// a fallback when that metadata is absent (live-edit-from-folder, install-from-zip).
 //
-// This used to fall back to 'allofmeng/streamline_project' for our own skin so it
-// stayed checkable when install metadata was missing. That fallback was REMOVED
-// rather than kept, because MSL is a fork: its version numbering restarts (0.0.1)
-// while upstream keeps climbing (0.1.85+). The badge is
-// `compareVersions(installed, latestTag) < 0`, so a fork measured against its
-// upstream reads "Update available" permanently and can never read anything else —
-// pointing at a repo that isn't even MSL.
+// This used to fall back to 'allofmeng/streamline_project' (upstream) instead, which
+// was wrong: MSL is a fork whose version numbering restarts (0.0.x) while upstream
+// keeps climbing (0.1.85+). The badge is `compareVersions(installed, latestTag) < 0`,
+// so a fork measured against upstream reads "Update available" permanently and can
+// never read anything else — pointing at a repo that isn't even MSL. That fallback
+// was removed until MSL had its own releases to compare against instead.
 //
-// Returning null costs nothing today: the fallback only fired when install metadata
-// is absent (live-edit-from-folder, install-from-zip), where "Up to date" is the
-// honest answer anyway. A skin installed from a real GitHub release carries
-// `reaMetadata.sourceUrl` and takes the branch above, which is already correct.
-//
-// TODO(MSL): once MSL publishes its own GitHub releases, restore the fallback with
-// MSL's own slug — one line, right here:
-//     if (s?.id === SKIN_ID) return 'owner/MSL';
+// Now that MSL publishes its own GitHub releases at allofmeng/MSL, comparing against
+// them is safe: same repo's own version history, no restart mismatch.
 function skinRepoSlug(s) {
     const m = (s?.reaMetadata?.sourceUrl || '').match(/github_release:([^@\s]+)/i);
     if (m) return m[1];
+    if (s?.id === SKIN_ID) return 'allofmeng/MSL';
     return null;
 }
 

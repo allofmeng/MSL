@@ -1814,7 +1814,19 @@ async function cancelEditor() {
             }
         } catch (_) {}
     }
-    loadPage('index.html');
+    // Back to the selector on the profile that was being edited, not to the main
+    // page. Abandoning an edit is a decision about this profile — you are far
+    // more likely to want another look at it, or a different profile, than to be
+    // dropped on the shot screen. Same hint the save path uses, so the selector
+    // opens on it and scrolls it into view.
+    //
+    // Skipped for a discarded new-profile session: the record was just deleted
+    // above, so the hint would point at nothing and the selector would silently
+    // fall back to its first entry anyway.
+    if (editorState.sourceProfileId && !_isNewProfileSession) {
+        sessionStorage.setItem('lastEditedProfileKey', editorState.sourceProfileId);
+    }
+    loadPage('src/profiles/profile_selector.html');
 }
 
 // ─── Version history / revert ────────────────────────────────────────────────
