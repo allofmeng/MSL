@@ -174,14 +174,40 @@ function displayState() { return displayStateCache ?? getLastDisplayState(); }
 
 let activeSettingsCategory = null; // New global variable to track the currently active category
 
-let pendingChanges = { rea: {}, de1: {}, de1Advanced: {}, workflow: {} };
-function resetPendingChanges() { pendingChanges = { rea: {}, de1: {}, de1Advanced: {}, workflow: {} }; }
+// waterLevels is a scalar rather than a bag of keys: it is one endpoint taking
+// one number (POST /machine/waterLevels), not part of the rea/de1 settings
+// payloads. null means "not staged".
+let pendingChanges = { rea: {}, de1: {}, de1Advanced: {}, workflow: {}, waterLevels: null };
+function resetPendingChanges() { pendingChanges = { rea: {}, de1: {}, de1Advanced: {}, workflow: {}, waterLevels: null }; }
 function hasPendingChanges() {
     return Object.keys(pendingChanges.rea).length > 0 ||
         Object.keys(pendingChanges.de1).length > 0 ||
         Object.keys(pendingChanges.de1Advanced).length > 0 ||
-        Object.keys(pendingChanges.workflow).length > 0;
+        Object.keys(pendingChanges.workflow).length > 0 ||
+        pendingChanges.waterLevels !== null;
 }
+// The header buttons are the only place the staged/applied distinction is
+// visible. Without this, Save looked identical whether or not anything was
+// staged, and tapping it on an untouched page just navigated home — so nobody
+// could tell whether a toggle they flipped had reached the machine yet.
+//
+// Clean: "Done", a plain exit. Dirty: "Save changes", which flushes first, and
+// Cancel becomes "Discard" — "Cancel" with nothing staged reads as if it undoes
+// the visit itself. Both buttons still leave the page; only the promise differs.
+function refreshSaveButtonState() {
+    const saveBtn = document.getElementById('save-settings-btn');
+    const cancelBtn = document.getElementById('cancel-settings-btn');
+    if (!saveBtn) return;
+    const dirty = hasPendingChanges();
+    saveBtn.textContent = dirty ? getTranslation('Save changes') : getTranslation('Done');
+    saveBtn.setAttribute('data-i18n-key', dirty ? 'Save changes' : 'Done');
+    if (cancelBtn) {
+        cancelBtn.textContent = dirty ? getTranslation('Discard') : getTranslation('Cancel');
+        cancelBtn.setAttribute('data-i18n-key', dirty ? 'Discard' : 'Cancel');
+        cancelBtn.classList.toggle('invisible', !dirty);
+    }
+}
+
 async function flushPendingChanges() {
     const tasks = [];
     if (Object.keys(pendingChanges.rea).length) tasks.push(setReaSettings(pendingChanges.rea));
@@ -189,6 +215,14 @@ async function flushPendingChanges() {
     if (Object.keys(pendingChanges.de1Advanced).length) tasks.push(setDe1AdvancedSettings(pendingChanges.de1Advanced));
     if (pendingChanges.workflow.steamSettings) tasks.push(updateWorkflow({ steamSettings: pendingChanges.workflow.steamSettings }));
     if (pendingChanges.workflow.hotWaterData) tasks.push(updateWorkflow({ hotWaterData: pendingChanges.workflow.hotWaterData }));
+    if (pendingChanges.waterLevels !== null) {
+        const mm = pendingChanges.waterLevels;
+        // Mirror into the key waterTank.js keeps in sync with the machine, but
+        // only once the machine has actually taken the value — writing it while
+        // the change is merely staged would leave the tank widget reading a level
+        // the machine never got, until the next feed overwrote it back.
+        tasks.push(setWaterLevels(mm).then(() => localStorage.setItem('waterRefillLevel', String(mm))));
+    }
     if (tasks.length) await Promise.all(tasks);
     saveSettingsBackup();
     resetPendingChanges();
@@ -449,11 +483,44 @@ function areSettingsLoaded() {
            settingsCache.de1Advanced !== null;
 }
 
+// Look-ahead multipliers, bounded. Defaults per reaprime's schema are 1.0 /
+// 0.3 s / 0.3 s; these ceilings are "generous but still espresso", picked so a
+// stuck stepper or a fat-fingered numpad entry cannot silently arm a stop that
+// ends the pour seconds early.
+const FLOW_MULT_MAX = { weight: 3, volume: 2, hotWater: 2 };
+const FLOW_MULT_DEFAULT = { weight: 1.0, volume: 0.3, hotWater: 0.3 };
+
+function flowMultWarning(kind, value) {
+    const v = parseFloat(value);
+    if (!Number.isFinite(v) || v <= FLOW_MULT_MAX[kind]) return '';
+    return `<p class="text-[20px] text-[var(--status-red-color)] w-full text-center mt-[8px]">
+        ${getTranslation('Above the usual range')} (0–${FLOW_MULT_MAX[kind]}). ${getTranslation('Default is')} ${FLOW_MULT_DEFAULT[kind].toFixed(1)}.
+    </p>`;
+}
+
+const FLOW_MULT_KEYS = {
+    weightFlowMultiplier: 'weight',
+    volumeFlowMultiplier: 'volume',
+    hotWaterFlowMultiplier: 'hotWater',
+};
+
 // Update decent.app settings
 export function updateReaSetting(key, value, rerender = true) {
+    // Bound the look-ahead multipliers, but only downward from where they already
+    // are: a machine already holding 20 must not have its value yanked to 3 by a
+    // press of "−0.1" — that reads as the button malfunctioning. You can always
+    // walk an out-of-range value back, and once it is inside the range the
+    // ceiling holds. flowMultWarning() says so meanwhile.
+    const boundKey = FLOW_MULT_KEYS[key];
+    if (boundKey && typeof value === 'number' && Number.isFinite(value)) {
+        const current = Number(settingsCache.rea?.[key]);
+        const ceiling = Math.max(FLOW_MULT_MAX[boundKey], Number.isFinite(current) ? current : 0);
+        value = Math.min(ceiling, Math.max(0, value));
+    }
     if (!settingsCache.rea) settingsCache.rea = {};
     settingsCache.rea[key] = value;
     pendingChanges.rea[key] = value;
+    refreshSaveButtonState();
     if (rerender && activeSettingsCategory) updateSettingsContentArea(activeSettingsCategory);
 }
 
@@ -462,6 +529,7 @@ export function updateDe1Setting(key, value) {
     if (!settingsCache.de1) settingsCache.de1 = {};
     settingsCache.de1[key] = value;
     pendingChanges.de1[key] = value;
+    refreshSaveButtonState();
     if (activeSettingsCategory) updateSettingsContentArea(activeSettingsCategory);
 }
 
@@ -470,6 +538,7 @@ export function updateDe1AdvancedSetting(key, value) {
     if (!settingsCache.de1Advanced) settingsCache.de1Advanced = {};
     settingsCache.de1Advanced[key] = value;
     pendingChanges.de1Advanced[key] = value;
+    refreshSaveButtonState();
     if (activeSettingsCategory) updateSettingsContentArea(activeSettingsCategory);
 }
 
@@ -480,6 +549,7 @@ export function updateSteamSetting(key, value) {
     settingsCache.workflow.steamSettings[key] = value;
     if (!pendingChanges.workflow.steamSettings) pendingChanges.workflow.steamSettings = { ...(settingsCache.workflow.steamSettings) };
     pendingChanges.workflow.steamSettings[key] = value;
+    refreshSaveButtonState();
 }
 
 // Update hot water settings via workflow API
@@ -489,6 +559,7 @@ export function updateHotWaterSetting(key, value) {
     settingsCache.workflow.hotWaterData[key] = value;
     if (!pendingChanges.workflow.hotWaterData) pendingChanges.workflow.hotWaterData = { ...(settingsCache.workflow.hotWaterData) };
     pendingChanges.workflow.hotWaterData[key] = value;
+    refreshSaveButtonState();
 }
 
 
@@ -723,7 +794,7 @@ export function renderFlowMultiplierSettings(settings) {
         return `
             <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
                 <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                    <p class="leading-[1.2]" data-i18n-key="Flow Multiplier Settings">Flow Multiplier Settings</p>
+                    <p class="leading-[1.2]" data-i18n-key="Flow Multiplier">Flow Multiplier</p>
                 </div>
                 <div class="text-red-500 p-4 text-[24px]" data-i18n-key="Failed to load flow multiplier settings">Failed to load flow multiplier settings</div>
             </div>
@@ -733,7 +804,7 @@ export function renderFlowMultiplierSettings(settings) {
     return `
         <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                <p class="leading-[1.2]" data-i18n-key="Flow Multiplier Settings">Flow Multiplier Settings</p>
+                <p class="leading-[1.2]" data-i18n-key="Flow Multiplier">Flow Multiplier</p>
             </div>
 
             <!-- Divider -->
@@ -772,6 +843,7 @@ export function renderFlowMultiplierSettings(settings) {
                     <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full text-center">
                         Multiplier factor applied to weight flow for projected weight calculation when stopping shots by weight. Default is 1.0. Higher values stop the shot earlier, lower values stop later.
                     </p>
+                    ${flowMultWarning('weight', settings.weightFlowMultiplier)}
                 </div>
 
                 <div class="border border-[#c9c9c9] border-solid content-stretch flex flex-col gap-[20px] items-center px-[60px] py-[20px] relative shrink-0 w-[590px] mt-[30px]">
@@ -805,6 +877,7 @@ export function renderFlowMultiplierSettings(settings) {
                     <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full text-center">
                         Multiplier factor (in seconds) applied to machine flow for projected volume calculation when stopping shots by volume. Default is 0.3. This accounts for system lag between stop command and actual flow stop.
                     </p>
+                    ${flowMultWarning('volume', settings.volumeFlowMultiplier)}
                 </div>
             </div>
         </div>
@@ -1214,14 +1287,14 @@ export function renderUsbChargerModeSettings(settings) {
             <div class="flex items-center justify-between gap-[24px] w-full">
                 <div class="flex flex-col gap-[4px]">
                     <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
-                        <p class="leading-[1.2]" id="usbChargerModeLabel">USB Power ${(settings.usb === true || settings.usb === 'enable') ? 'off' : 'on'}</p>
+                        <p class="leading-[1.2]" id="usbChargerModeLabel" data-i18n-key="USB power">USB power</p>
                     </div>
                 </div>
                 <label class="relative flex items-center cursor-pointer flex-shrink-0 w-[100px] h-[50px]">
                     <input type="checkbox" id="usbChargerModeToggle"
                            class="sr-only peer"
                            ${(settings.usb === true || settings.usb === 'enable') ? 'checked' : ''}
-                           onchange="window.updateDe1Setting('usb', this.checked ? 'enable' : 'disable'); document.getElementById('usbChargerModeLabel').textContent = 'USB Power ' + (this.checked ? 'off' : 'on')">
+                           onchange="window.updateDe1Setting('usb', this.checked ? 'enable' : 'disable')">
                     <div class="absolute inset-0 rounded-full border-2 transition-colors duration-200 bg-[var(--toggle-off-bg)] border-[var(--toggle-off-border)] peer-checked:bg-[#385a92] peer-checked:border-[#385a92]"></div>
                     <div class="absolute top-1/2 left-[5px] -translate-y-1/2 peer-checked:translate-x-[46px] size-[40px] rounded-full transition-[transform,background-color] duration-200 bg-[var(--toggle-off-knob)] peer-checked:bg-white"></div>
                 </label>
@@ -4010,6 +4083,9 @@ function snapWaterAlertLevel(value) {
 
 // Read persisted water alert refill level (mm). Default 15mm.
 function getWaterAlertLevel() {
+    // A staged change outranks the stored mirror, or a re-render would snap the
+    // field back to the machine's current value while the user is looking at it.
+    if (pendingChanges.waterLevels !== null) return pendingChanges.waterLevels;
     const stored = parseInt(localStorage.getItem('waterRefillLevel'), 10);
     return WATER_ALERT_LEVELS.includes(stored) ? stored : 15;
 }
@@ -4524,7 +4600,7 @@ export function renderMainDescalingSettings() {
                 <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
                     <div class="content-stretch flex items-center justify-between relative w-full">
                         <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
-                            <p class="leading-[1.2]" data-i18n-key="Machine Descaling">Machine Descaling</p>
+                            <p class="leading-[1.2]" data-i18n-key="Descaling cycle">Descaling cycle</p>
                         </div>
                         <button class="bg-[#385a92] h-[72px] px-[48px] rounded-[72px] text-white text-[24px] font-bold"
                                 onclick="window.startDescaling()" data-i18n-key="Start">
@@ -4704,7 +4780,7 @@ export function renderSkinSettings() {
     return `
         <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
-                <p class="leading-[1.2]" data-i18n-key="Skin Settings">Skin Settings</p>
+                <p class="leading-[1.2]" data-i18n-key="Skin">Skin</p>
             </div>
 
             <div class="content-stretch flex flex-col items-start relative w-full">
@@ -4741,7 +4817,8 @@ export function renderSkinSettings() {
                         // release, which tracks GitHub) so the card matches the update
                         // badge. Fall back to the hardcoded build marker only when the
                         // bridge reports no version for our skin (dist/preview builds).
-                        const displayVersion = s.version || (s.id === SKIN_ID ? APP_VERSION : '');
+                        const displayVersion = String(s.version || (s.id === SKIN_ID ? APP_VERSION : ''))
+                            .replace(/^v/i, '');   // some skins report "v0.4.0" — don't print "vv0.4.0"
                         return `
                         <button
                             onclick="${isActive ? '' : `window.setActiveSkin('${s.id}')`}"
@@ -5540,9 +5617,9 @@ export function renderSubcategories(mainCategoryKey) {
         const label = prefix ? subcat.name.slice(prefix.length) : subcat.name;
         subcategoryItems += `
             <li>
-                <button class="settings-subnav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center"
+                <button class="settings-subnav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"
                         data-category="${subcat.settingsCategory}">
-                    ${prefix}<span data-i18n-key="${subcat.i18nKey || label}">${label}</span>
+                    <span data-i18n-key="${subcat.i18nKey || label}">${label}</span>
                 </button>
             </li>
         `;
@@ -5817,7 +5894,7 @@ function getCategoryTitle(category) {
     switch(category) {
         case 'rea': return 'decent.app Application Settings';
         case 'quickadjustments': return 'Quick Adjustments';
-        case 'flowmultiplier': return 'Flow Multiplier Settings';
+        case 'flowmultiplier': return 'Flow Multiplier';
         case 'steam': return 'Steam Settings';
         case 'hotwater': return 'Hot Water Settings';
         case 'watertank': return 'Water Tank Settings';
@@ -5881,7 +5958,7 @@ export async function initializeSettings() {
                 ui.showToast(`Failed to save settings: ${error.message}`, 5000, 'error');
                 return;
             }
-            ui.showToast('decent.app settings updated', 3000, 'success');
+            ui.showToast(getTranslation('Settings saved'), 3000, 'success');
             // Exiting settings straight from the Lighting page must not leave a
             // preview colour latched on the strip — and a deferred cross-state
             // palette PUT flushes first (flush → clear, one transition).
@@ -5896,6 +5973,7 @@ export async function initializeSettings() {
         });
     }
 
+    refreshSaveButtonState();
     initResizableSubNav();
 
     // Set up main category navigation
@@ -5903,11 +5981,9 @@ export async function initializeSettings() {
         btn.addEventListener('click', function() {
             // Handle active state for main categories
             document.querySelectorAll('.settings-nav-btn').forEach(b => {
-                b.classList.remove('text-white', 'bg-[#2c4a7a]');
-                b.classList.add('text-[#959595]'); // Explicitly re-add default color
+                b.classList.remove('is-active');
             });
-            this.classList.remove('text-[#959595]'); // Explicitly remove default color
-            this.classList.add('text-white', 'bg-[#2c4a7a]');
+            this.classList.add('is-active');
 
             const mainCategoryKey = this.id.replace(/-btn$/, '').replace(/-/g, '');
 
@@ -5924,11 +6000,9 @@ export async function initializeSettings() {
 
                         // Handle active state for subcategories
                         subCategoriesPanel.querySelectorAll('.settings-subnav-btn').forEach(sb => {
-                             sb.classList.remove('text-white', 'bg-[#2c4a7a]');
-                             sb.classList.add('text-[#959595]');
+                             sb.classList.remove('is-active');
                         });
-                        this.classList.remove('text-[#959595]');
-                        this.classList.add('text-white', 'bg-[#2c4a7a]');
+                        this.classList.add('is-active');
 
                         const settingsCategory = this.dataset.category;
                         activeSettingsCategory = settingsCategory; // Set the active category
@@ -6877,7 +6951,8 @@ export async function initializeSettings() {
         const input = document.getElementById('weightFlowMultiplierInput');
         if (input) {
             let newValue = parseFloat(input.value) + change;
-            newValue = Math.max(0, newValue);
+            const ceiling = Math.max(FLOW_MULT_MAX.weight, parseFloat(input.value) || 0);
+            newValue = Math.min(ceiling, Math.max(0, newValue));
             input.value = newValue.toFixed(1);
             input.dispatchEvent(new Event('change'));
         }
@@ -6887,7 +6962,8 @@ export async function initializeSettings() {
         const input = document.getElementById('volumeFlowMultiplierInput');
         if (input) {
             let newValue = parseFloat(input.value) + change;
-            newValue = Math.max(0, newValue);
+            const ceiling = Math.max(FLOW_MULT_MAX.volume, parseFloat(input.value) || 0);
+            newValue = Math.min(ceiling, Math.max(0, newValue));
             input.value = newValue.toFixed(2);
             input.dispatchEvent(new Event('change'));
         }
@@ -6897,7 +6973,8 @@ export async function initializeSettings() {
         const input = document.getElementById('hotWaterFlowMultiplierInput');
         if (input) {
             let newValue = parseFloat(input.value) + change;
-            newValue = Math.max(0, newValue);
+            const ceiling = Math.max(FLOW_MULT_MAX.hotWater, parseFloat(input.value) || 0);
+            newValue = Math.min(ceiling, Math.max(0, newValue));
             input.value = newValue.toFixed(2);
             input.dispatchEvent(new Event('change'));
         }
@@ -7013,24 +7090,19 @@ export async function initializeSettings() {
         }
     };
 
-    let _waterAlertDebounce = null;
+    // Staged, not fired: this used to POST to the machine 400ms after the last
+    // tap, which meant the value was already applied while the header still read
+    // "Done" — nothing on screen distinguished it from an unsaved change, and
+    // Cancel could not take it back. It now travels with every other setting on
+    // this page and lands when Save is pressed.
     window.commitWaterAlert = function(value) {
         const snapped = snapWaterAlertLevel(value);
         const input = document.getElementById('waterAlertInput');
         if (input && parseInt(input.value, 10) !== snapped) {
             input.value = snapped;
         }
-        localStorage.setItem('waterRefillLevel', String(snapped));
-        clearTimeout(_waterAlertDebounce);
-        _waterAlertDebounce = setTimeout(async () => {
-            try {
-                await setWaterLevels(snapped);
-                logger.info(`Water refill level set to ${snapped}mm`);
-            } catch (err) {
-                logger.error('Failed to set water refill level:', err);
-                ui.showToast('Failed to update water alert level', 4000, 'error');
-            }
-        }, 400);
+        pendingChanges.waterLevels = snapped;
+        refreshSaveButtonState();
     };
 
     window.adjustWaterAlert = function(change) {
@@ -7292,7 +7364,7 @@ function restoreOriginalNavigation() {
             const li = document.createElement('li');
             const btn = document.createElement('button');
             btn.id = `${key}-btn`;
-            btn.className = 'settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center';
+            btn.className = 'settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center';
             btn.innerHTML = `${i + 1}. <span>${getTranslation(category.i18nKey || category.name)}</span>`;
 
             navUl.appendChild(li);
@@ -7309,11 +7381,9 @@ function restoreOriginalNavigation() {
         newBtn.addEventListener('click', function() {
             // Handle active state for main categories
             document.querySelectorAll('.settings-nav-btn').forEach(b => {
-                b.classList.remove('text-white', 'bg-[#2c4a7a]');
-                b.classList.add('text-[#959595]'); // Explicitly re-add default color
+                b.classList.remove('is-active');
             });
-            this.classList.remove('text-[#959595]'); // Explicitly remove default color
-            this.classList.add('text-white', 'bg-[#2c4a7a]');
+            this.classList.add('is-active');
 
             const mainCategoryKey = this.id.replace(/-btn$/, '').replace(/-/g, '');
 
@@ -7330,11 +7400,9 @@ function restoreOriginalNavigation() {
 
                         // Handle active state for subcategories
                         subCategoriesPanel.querySelectorAll('.settings-subnav-btn').forEach(sb => {
-                             sb.classList.remove('text-white', 'bg-[#2c4a7a]');
-                             sb.classList.add('text-[#959595]');
+                             sb.classList.remove('is-active');
                         });
-                        this.classList.remove('text-[#959595]');
-                        this.classList.add('text-white', 'bg-[#2c4a7a]');
+                        this.classList.add('is-active');
 
                         const settingsCategory = this.dataset.category;
                         activeSettingsCategory = settingsCategory; // Set the active category
@@ -7382,7 +7450,7 @@ function updateNavigationWithResults(filteredCategories, searchTerm) {
             const li = document.createElement('li');
             const btn = document.createElement('button');
             btn.id = `${key}-btn`;
-            btn.className = 'settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center';
+            btn.className = 'settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center';
 
             const number = allKeys.indexOf(key) + 1;
             // Translate before highlighting — search filters on the English name but the
@@ -7405,11 +7473,9 @@ function updateNavigationWithResults(filteredCategories, searchTerm) {
         newBtn.addEventListener('click', function() {
             // Handle active state for main categories
             document.querySelectorAll('.settings-nav-btn').forEach(b => {
-                b.classList.remove('text-white', 'bg-[#2c4a7a]');
-                b.classList.add('text-[#959595]');
+                b.classList.remove('is-active');
             });
-            this.classList.remove('text-[#959595]');
-            this.classList.add('text-white', 'bg-[#2c4a7a]');
+            this.classList.add('is-active');
 
             const mainCategoryKey = this.id.replace(/-btn$/, '').replace(/-/g, '');
             const category = settingsTree[mainCategoryKey];
@@ -7425,11 +7491,9 @@ function updateNavigationWithResults(filteredCategories, searchTerm) {
                         e.stopPropagation();
 
                         subCategoriesPanel.querySelectorAll('.settings-subnav-btn').forEach(sb => {
-                             sb.classList.remove('text-white', 'bg-[#2c4a7a]');
-                             sb.classList.add('text-[#959595]');
+                             sb.classList.remove('is-active');
                         });
-                        this.classList.remove('text-[#959595]');
-                        this.classList.add('text-white', 'bg-[#2c4a7a]');
+                        this.classList.add('is-active');
 
                         const settingsCategory = this.dataset.category;
                         activeSettingsCategory = settingsCategory;
@@ -7513,7 +7577,7 @@ function renderFilteredSubcategories(mainCategoryKey, searchTerm) {
 
         subcategoryItems += `
             <li>
-                <button class="settings-subnav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center"
+                <button class="settings-subnav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"
                         data-category="${subcat.settingsCategory}">
                     <span>${prefix}${highlightedName}</span>
                 </button>
@@ -7611,7 +7675,38 @@ export function initDisplayWebSocket() {
  */
 window.renderDeviceListFromCache = function() { renderDeviceListFromCache(); };
 
+const LAST_SEEN_KEY = 'deviceLastConnected';
+
+function readLastConnected() {
+    try { return JSON.parse(localStorage.getItem(LAST_SEEN_KEY) || '{}'); } catch { return {}; }
+}
+
+function recordConnectedDevices(devices) {
+    const seen = readLastConnected();
+    let changed = false;
+    for (const device of devices) {
+        if (device?.id && device.state === 'connected') { seen[device.id] = Date.now(); changed = true; }
+    }
+    if (changed) {
+        try { localStorage.setItem(LAST_SEEN_KEY, JSON.stringify(seen)); } catch { /* private mode */ }
+    }
+}
+
+// Coarse on purpose: "which DE1 is this" is answered by today/yesterday/last
+// week, never by a timestamp to the minute.
+function lastConnectedLabel(deviceId) {
+    const at = readLastConnected()[deviceId];
+    if (!at) return '';
+    const days = Math.floor((Date.now() - at) / 86400000);
+    const when = new Date(at);
+    const time = when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (days === 0) return `${getTranslation('Last connected')} ${getTranslation('today')} ${time}`;
+    if (days === 1) return `${getTranslation('Last connected')} ${getTranslation('yesterday')} ${time}`;
+    return `${getTranslation('Last connected')} ${when.toLocaleDateString()}`;
+}
+
 function renderDeviceListFromCache() {
+    recordConnectedDevices(deviceStateCache.devices);
     const machines = deviceStateCache.devices.filter(device =>
         device.type === 'machine' ||
         (device.name && (device.name.toLowerCase().includes('de1') ||
@@ -7935,8 +8030,8 @@ export function renderBluetoothMachineSettings() {
                 <p class="flex-1 text-center font-['Inter:Semi_Bold',sans-serif] font-semibold not-italic text-[var(--text-primary)] text-[36px] leading-[1.2]" data-i18n-key="Espresso Machine">Espresso Machine</p>
                 <button id="scan-machine-btn"
                         class="w-[139px] shrink-0 border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] h-[62px] rounded-[67.5px] border text-[24px] transition-colors duration-200 hover:bg-[var(--mimoja-blue)] hover:text-white"
-                        onclick="window.scanForMachines()" data-i18n-key="Search">
-                    Search
+                        onclick="window.scanForMachines()" data-i18n-key="Scan">
+                    Scan
                 </button>
             </div>
 
@@ -7978,8 +8073,8 @@ export function renderBluetoothScaleSettings(settings) {
                 <p class="flex-1 text-center font-['Inter:Semi_Bold',sans-serif] font-semibold not-italic text-[var(--text-primary)] text-[36px] leading-[1.2]" data-i18n-key="Scale">Scale</p>
                 <button id="scan-scale-btn"
                         class="w-[139px] shrink-0 border-[var(--mimoja-blue)] text-[var(--mimoja-blue)] h-[62px] rounded-[67.5px] border text-[24px] transition-colors duration-200 hover:bg-[var(--mimoja-blue)] hover:text-white"
-                        onclick="window.scanForScales()" data-i18n-key="Search">
-                    Search
+                        onclick="window.scanForScales()" data-i18n-key="Scan">
+                    Scan
                 </button>
             </div>
 
@@ -8150,7 +8245,7 @@ function renderDeviceList(containerId, devices, type, preferredId = '', settingK
         container.innerHTML = `
             <div class="flex items-center gap-[16px] w-full bg-[var(--box-color)] border border-[var(--profile-button-outline-color)] rounded-[18px] px-[28px] py-[24px] opacity-60">
                 <div class="w-[14px] h-[14px] rounded-full bg-[var(--profile-button-outline-color)] flex-shrink-0"></div>
-                <p class="text-[24px] text-[var(--text-primary)]">No ${type.toLowerCase()} found — tap Search to find nearby devices.</p>
+                <p class="text-[24px] text-[var(--text-primary)]">No ${type.toLowerCase()} found — tap Scan to look for nearby devices.</p>
             </div>`;
     }
     // The device list is injected via WebSocket updates, after the page's initial
@@ -8232,7 +8327,10 @@ function renderSingleDeviceList(devices, preferredId = '', settingKey = '', type
                     </div>
                     <div class="flex flex-col gap-[4px] min-w-0">
                         <span class="text-[26px] font-bold text-[var(--text-primary)] truncate leading-tight">${device.name}</span>
-                        <span class="text-[18px] text-[var(--text-primary)] opacity-40 font-mono truncate">${device.id || 'N/A'}</span>
+                        ${isConnected
+                            ? `<span class="text-[18px] text-[var(--text-primary)] opacity-40 font-mono truncate">${device.id || 'N/A'}</span>`
+                            : `<span class="text-[18px] text-[var(--text-primary)] opacity-60 truncate">${lastConnectedLabel(device.id) || getTranslation('Never connected')}</span>
+                               <span class="text-[15px] text-[var(--text-primary)] opacity-30 font-mono truncate">${device.id || 'N/A'}</span>`}
                     </div>
                 </div>
                 <div class="flex items-center gap-[20px] flex-shrink-0 ml-[24px]">

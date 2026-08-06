@@ -323,6 +323,7 @@ function initModals() {
 }
 
 let selectedProfileKey = null;
+let loadedProfileTitle = null;
 let isShowingHidden = false; // State to track if hidden profiles should be shown
 let isSearching = false; // State to track if search mode is active
 const LONG_PRESS_DURATION = 400; // ms
@@ -475,6 +476,17 @@ function handleCancel() {
     loadPage('index.html');
 }
 
+
+// Centre an item in its scroll container. Deliberately not scrollIntoView():
+// the page sits under scaling.js's CSS transform, where that API measures in
+// transformed space and can scroll ancestors as well. offsetTop is layout space,
+// which is exactly what the container's scrollTop wants. `auto`, not smooth --
+// this runs on first paint, and an arrival animation reads as "still loading".
+function scrollItemIntoList(container, item) {
+    if (!container || !item) return;
+    const target = item.offsetTop - (container.clientHeight / 2) + (item.offsetHeight / 2);
+    container.scrollTo({ top: Math.max(0, target), behavior: 'auto' });
+}
 
 function updateSelectedProfileView(profileItem) {
     console.log('updateSelectedProfileView: Updating selected profile view');
@@ -654,6 +666,20 @@ function renderProfiles() {
             titleSpan.textContent = profile.title || 'Untitled Profile';
             leftSide.appendChild(titleSpan);
 
+            // The profile currently on the machine. The selection highlight moves
+            // the moment you tap another entry, so without this you lose track of
+            // which one you actually pulled the last shot with.
+            if (loadedProfileTitle && (profile.title || '').trim() === loadedProfileTitle) {
+                const loadedBadge = document.createElement('span');
+                // currentColor, not a fixed blue: the selected row paints itself
+                // #385a92 with white text, and a blue-on-blue badge disappears
+                // exactly on the row this badge most often lands on.
+                loadedBadge.className = 'text-[16px] px-2 py-0.5 rounded-full whitespace-nowrap';
+                loadedBadge.style.cssText = 'border:1px solid currentColor; color:currentColor; opacity:0.75';
+                loadedBadge.textContent = getTranslation('Loaded');
+                leftSide.appendChild(loadedBadge);
+            }
+
             // Lineage badge — "from <parent>" when this is a user-edited clone of a default
             const parentRecord = profileRecord.parentId ? availableProfiles[profileRecord.parentId] : null;
             const parentTitle = parentRecord?.profile?.title;
@@ -769,18 +795,30 @@ function renderProfiles() {
 
         console.log('renderProfiles: Total visible profiles:', visibleProfileCount);
         if (visibleProfileCount > 0 && !selectedProfileKey) {
-            // Honor a return-from-editor hint before falling back to first item.
+            // Which entry the page opens on, in order of what the user just did:
+            //   1. came back from the editor  -> the profile they were editing
+            //   2. tapped the profile name    -> the profile loaded on the machine
+            //   3. neither                    -> first in the list
+            // Opening on the loaded profile is the whole point of tapping its
+            // name: the library is long enough that landing on an alphabetical
+            // first entry means hunting for the one you are already using.
             const lastEditedKey = sessionStorage.getItem('lastEditedProfileKey');
+            const focusKey = sessionStorage.getItem('focusProfileKey');
             let initialItem = null;
             if (lastEditedKey) {
                 initialItem = container.querySelector(`[data-profile-key="${CSS.escape(lastEditedKey)}"]`);
                 sessionStorage.removeItem('lastEditedProfileKey');
             }
+            if (!initialItem && focusKey) {
+                initialItem = container.querySelector(`[data-profile-key="${CSS.escape(focusKey)}"]`);
+            }
+            sessionStorage.removeItem('focusProfileKey');
             if (!initialItem) initialItem = container.querySelector('[data-profile-key]');
             if (initialItem) {
                 initialItem.classList.add('bg-[#385a92]', 'text-white', 'rounded-[8px]');
                 initialItem.setAttribute('aria-selected', 'true');
                 updateSelectedProfileView(initialItem);
+                scrollItemIntoList(container, initialItem);
             }
         }
 
@@ -1306,6 +1344,20 @@ export async function initializeProfileSelector() {
 
     // Reset the selected profile key to ensure first profile gets selected on page load
     selectedProfileKey = null;
+
+    // The machine's workflow is the authority on what is loaded, and it is right
+    // however the page was opened -- profile name, Profiles button, or a
+    // favourite's menu. Not awaited: the list must not wait on it, and the badge
+    // arrives with the re-render that follows the profile fetch.
+    loadedProfileTitle = null;
+    getWorkflow()
+        .then(workflow => {
+            const title = (workflow?.profile?.title || '').trim();
+            if (!title || title === loadedProfileTitle) return;
+            loadedProfileTitle = title;
+            if (Object.keys(availableProfiles).length > 0) renderProfiles();
+        })
+        .catch(e => logger.warn('Could not read the loaded profile', e));
 
     translatePage();
     console.log('initializeProfileSelector: i18n translated');

@@ -334,6 +334,22 @@ export function getActiveProfileRecord() {
     return availableProfiles[activeProfileId];
 }
 
+// The key of the profile currently loaded on the machine, or null.
+//
+// activeProfileId is only set when this session sent the profile, so after a
+// reload — which Decaid does on its own after ten minutes backgrounded — it is
+// empty even though a profile is very much loaded. The displayed name is what
+// survives, so fall back to matching it against the library. Titles are matched
+// after translation because that is what the header shows.
+export function getActiveProfileKey(displayedTitle = null) {
+    if (activeProfileId && availableProfiles[activeProfileId]) return activeProfileId;
+    const wanted = (displayedTitle || '').trim();
+    if (!wanted) return null;
+    const hit = Object.entries(availableProfiles).find(([, record]) =>
+        translateProfileTitle(record.profile?.title ?? '').trim() === wanted);
+    return hit ? hit[0] : null;
+}
+
 // Serialize metadata read-modify-write so concurrent edits and resets can't
 // clobber each other. Without this, two writers read the same base metadata and
 // the last PUT to resolve wins — silently dropping the other's user-entered

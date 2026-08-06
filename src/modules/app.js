@@ -1927,9 +1927,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         const profileNameEl = document.getElementById('profile-name');
         if (profileNameEl) {
             profileNameEl.style.cursor = 'pointer';
+            profileNameEl.setAttribute('role', 'button');
+            profileNameEl.setAttribute('tabindex', '0');
+            profileNameEl.setAttribute('aria-label', getTranslation('Browse Profiles'));
+            profileNameEl.title = getTranslation('Browse Profiles');
             ui.setupPressAndHold(
                 profileNameEl,
-                () => loadPage('src/profiles/profile_selector.html'),
+                () => {
+                    // Hand the selector the profile that is actually loaded, so it
+                    // opens on that entry instead of on whatever sorts first. Passed
+                    // through sessionStorage because the router tears this page down
+                    // and rebuilds the selector from a fragment.
+                    const key = profileManager.getActiveProfileKey(profileNameEl.textContent);
+                    if (key) sessionStorage.setItem('focusProfileKey', key);
+                    else sessionStorage.removeItem('focusProfileKey');
+                    loadPage('src/profiles/profile_selector.html');
+                },
                 (el) => {
                     const activeRecord = profileManager.getActiveProfileRecord()
                         ?? Object.values(profileManager.availableProfiles).find(r => {

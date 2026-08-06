@@ -25,19 +25,33 @@
 
             <div class="flex flex-grow overflow-hidden bg-[var(--box-color)]" id="settings-navigation-container">
                 <div id="main-categories-panel" class="h-full overflow-y-auto p-2 flex-shrink-0" style="width: 405px;" aria-label="Settings Categories">
+                    <!-- Grouped by what the setting acts on. The old 1..11 numbering was
+                         dropped: settings are not a sequence, nothing here is done in order,
+                         and the sub-panel restarted its own numbering so two different "1"s
+                         were on screen at once. -->
                     <nav>
+                        <p class="settings-nav-group" data-i18n-key="Brewing">Brewing</p>
                         <ul class="space-y-1">
-                            <li><button id="quickadjustments-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">1. <span data-i18n-key="Quick Adjustments">Quick Adjustments</span></button></li>
-                            <li><button id="bluetooth-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">2. <span data-i18n-key="Connection">Connections</span></button></li>
-                            <li><button id="calibration-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">3. <span data-i18n-key="Calibration">Calibration</span></button></li>
-                            <li><button id="machine-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">4. <span data-i18n-key="Machine">Machine</span></button></li>
-                            <li><button id="maintenance-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">5. <span data-i18n-key="Maintenance">Maintenance</span></button></li>
-                            <li><button id="skin-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">6. <span data-i18n-key="Skin">Skin</span></button></li>
-                            <li><button id="language-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">7. <span data-i18n-key="Language">Language</span></button></li>
-                            <li><button id="extensions-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">8. <span data-i18n-key="Extensions">Extensions</span></button></li>
-                            <li><button id="miscellaneous-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">9. <span data-i18n-key="Miscellaneous">Miscellaneous</span></button></li>
-                            <li><button id="updates-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">10. <span data-i18n-key="Updates">Updates</span></button></li>
-                            <li><button id="usermanual-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] text-[#959595] hover:text-white hover:bg-[#2c4a7a] flex items-center">11. <span data-i18n-key="User Manual">User Manual</span></button></li>
+                            <li><button id="quickadjustments-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Quick Adjustments">Quick Adjustments</span></button></li>
+                            <li><button id="calibration-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Calibration">Calibration</span></button></li>
+                        </ul>
+                        <p class="settings-nav-group" data-i18n-key="Machine">Machine</p>
+                        <ul class="space-y-1">
+                            <li><button id="bluetooth-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Connection">Connections</span></button></li>
+                            <li><button id="machine-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Machine">Machine</span></button></li>
+                            <li><button id="maintenance-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Maintenance">Maintenance</span></button></li>
+                        </ul>
+                        <p class="settings-nav-group" data-i18n-key="Appearance">Appearance</p>
+                        <ul class="space-y-1">
+                            <li><button id="skin-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Skin">Skin</span></button></li>
+                            <li><button id="language-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Language">Language</span></button></li>
+                        </ul>
+                        <p class="settings-nav-group" data-i18n-key="System">System</p>
+                        <ul class="space-y-1">
+                            <li><button id="extensions-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Extensions">Extensions</span></button></li>
+                            <li><button id="updates-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Updates">Updates</span></button></li>
+                            <li><button id="miscellaneous-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="Miscellaneous">Miscellaneous</span></button></li>
+                            <li><button id="usermanual-btn" class="settings-nav-btn w-full text-left px-4 py-3 rounded-lg text-[24px] flex items-center"><span data-i18n-key="User Manual">User Manual</span></button></li>
                         </ul>
                     </nav>
                 </div>
