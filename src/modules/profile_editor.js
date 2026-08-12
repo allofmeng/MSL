@@ -1408,7 +1408,12 @@ function buildShareImport() {
         status.textContent = '';
         try {
             const vizSettings = await getPluginSettings('visualizer.reaplugin');
-            const isConfigured = vizSettings?.Enabled !== false && !!(vizSettings?.Username && vizSettings?.Password);
+            // Secure settings come back as { isSet } state, never plaintext (decaid #588).
+            const password = vizSettings?.Password;
+            const passwordSet = password == null ? false
+                : typeof password === 'object' ? password.isSet === true
+                : !!password; // legacy cleartext from older decaid
+            const isConfigured = vizSettings?.Enabled !== false && !!(vizSettings?.Username && passwordSet);
             if (!isConfigured) {
                 status.innerHTML = t('No Visualizer account found. Go to <strong>Settings → Extensions → Visualizer</strong> to log in first.');
                 return;
