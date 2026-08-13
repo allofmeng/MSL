@@ -1,7 +1,7 @@
 import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, cancelFirmwareUpdate, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, connectScaleWebSocket } from '../modules/api.js';
 import * as ui from '../modules/ui.js';
 import { initScaling } from '../modules/scaling.js';
-import { getSupportedLanguages, getCurrentLanguage, setLanguage, translatePage, getTranslation } from '../modules/i18n.js';
+import { getSupportedLanguages, getCurrentLanguage, setLanguage, translatePage, getTranslation, fitTextToWidth } from '../modules/i18n.js';
 import { getTempUnit, setTempUnit, formatTemp, fromDisplayTemp, boundToDisplay } from '../modules/units.js';
 import { loadPage } from '../modules/router.js'; // Singular and correctly formatted import
 import { logger } from '../modules/logger.js';
@@ -204,10 +204,12 @@ function refreshSaveButtonState() {
     const dirty = hasPendingChanges();
     saveBtn.textContent = dirty ? getTranslation('Save changes') : getTranslation('Done');
     saveBtn.setAttribute('data-i18n-key', dirty ? 'Save changes' : 'Done');
+    fitTextToWidth(saveBtn);
     if (cancelBtn) {
         cancelBtn.textContent = dirty ? getTranslation('Discard') : getTranslation('Cancel');
         cancelBtn.setAttribute('data-i18n-key', dirty ? 'Discard' : 'Cancel');
         cancelBtn.classList.toggle('invisible', !dirty);
+        fitTextToWidth(cancelBtn);
     }
 }
 

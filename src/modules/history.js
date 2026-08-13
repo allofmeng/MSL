@@ -138,7 +138,7 @@ async function displayShot(index) {
         dateEl.textContent = `${year}/${month}/${day} ${hours}:${minutes}`;
     }
     if (profileNameEl && shot.workflow && shot.workflow.profile) {
-        profileNameEl.textContent = shot.workflow.profile.title;
+        profileNameEl.textContent = getTranslation(shot.workflow.profile.title);
     }
     if (historyLabelEl) {
         if (index === 0) {

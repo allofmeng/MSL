@@ -620,10 +620,11 @@ function handleData(data) {
 
         // Tank-level warning, independent of the machine's own `needsWater`
         // state (that's a hard block that only fires once the machine actively
-        // tries to heat/pull). Same priority a real needsWater state already
-        // has -- it wins over Heating/pouring text too, since isHeatingState()
-        // never returns true for state === 'needsWater'.
-        if (state !== MachineState.NEEDS_WATER && isTankBelowRefillLevel()) {
+        // tries to heat/pull). Only surfaced while idle: during a live
+        // shot/pour/steam/flush this would stomp the in-progress status text
+        // the user actually needs to see, so it waits until the machine is
+        // back at idle rather than winning over Heating/pouring text.
+        if (state === MachineState.IDLE && isTankBelowRefillLevel()) {
             statusString = formatStateString(MachineState.NEEDS_WATER);
         }
     }

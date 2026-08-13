@@ -517,7 +517,7 @@ function updateSelectedProfileView(profileItem) {
         || profileItem.textContent;
     const titleElement = document.getElementById('selected_profile_name');
     if (titleElement) {
-        titleElement.textContent = profileTitle;
+        titleElement.textContent = getTranslation(profileTitle);
         console.log('updateSelectedProfileView: Updated profile name to', profileTitle);
     }
     selectedProfileKey = profileItem.dataset.profileKey;
@@ -667,7 +667,7 @@ function renderProfiles() {
             const leftSide = document.createElement('div');
             leftSide.className = 'flex items-baseline gap-2 min-w-0';
             const titleSpan = document.createElement('span');
-            titleSpan.textContent = profile.title || 'Untitled Profile';
+            titleSpan.textContent = getTranslation(profile.title || 'Untitled Profile');
             leftSide.appendChild(titleSpan);
 
             // The profile currently on the machine. The selection highlight moves
@@ -690,7 +690,7 @@ function renderProfiles() {
             if (parentTitle) {
                 const badge = document.createElement('span');
                 badge.className = 'text-[16px] px-2 py-0.5 rounded-full bg-white/15 whitespace-nowrap';
-                badge.textContent = `from ${parentTitle}`;
+                badge.textContent = `from ${getTranslation(parentTitle)}`;
                 leftSide.appendChild(badge);
             }
             div.appendChild(leftSide);
@@ -1267,7 +1267,7 @@ function filterProfiles(searchTerm) {
         const leftSide = document.createElement('div');
         leftSide.className = 'flex items-baseline gap-2 min-w-0';
         const titleSpan = document.createElement('span');
-        titleSpan.innerHTML = highlightTitle(profile.title || 'Untitled Profile', searchTerm);
+        titleSpan.innerHTML = highlightTitle(getTranslation(profile.title || 'Untitled Profile'), searchTerm);
         leftSide.appendChild(titleSpan);
 
         const parentRecord = profileRecord.parentId ? availableProfiles[profileRecord.parentId] : null;
@@ -1275,7 +1275,7 @@ function filterProfiles(searchTerm) {
         if (parentTitle) {
             const badge = document.createElement('span');
             badge.className = 'text-[16px] px-2 py-0.5 rounded-full bg-white/15 whitespace-nowrap';
-            badge.textContent = `from ${parentTitle}`;
+            badge.textContent = `from ${getTranslation(parentTitle)}`;
             leftSide.appendChild(badge);
         }
         div.appendChild(leftSide);
