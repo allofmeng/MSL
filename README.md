@@ -35,6 +35,8 @@ Settings, which writes `localStorage.reaHostname`.
 serves the folder directly, so the skin runs on `:3000` same-origin with the gateway. Best fidelity.
 
 **3. Install from a release zip**, Download the latest release and go to skins in Decaid app, choose install from .zip and point to the downloaded zip file.
+
+
 **4. Install from a URL**, while Decaid app is running go to http://localhost:8080/api/v1/plugins/settings.reaplugin/ui , scroll down to Install Skin and type in allofmeng/MSL and hit install.
 
 
