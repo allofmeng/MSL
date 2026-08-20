@@ -13,15 +13,16 @@ refreshing is the entire development loop.
 - **Talks to:** Decaid's REST + WebSocket API on port 8080. There is no direct Bluetooth from the skin.
 
 MSL is a fork of [`allofmeng/streamline_project`](https://github.com/allofmeng/streamline_project)
-(called *Streamline.js* until v0.0.1).
+(called *Streamline.js* ).
 
 ---
 
 ## Quick start
 
-Three ways to run it, cheapest first.
+few ways to run it on your device , inside Decaid etc. 
+**1. Install from a URL**, while Decaid app is running go to http://localhost:8080/api/v1/plugins/settings.reaplugin/ui , scroll down to Install Skin and type in allofmeng/MSL and hit install.
 
-**1. Any static server, with a live Decaid elsewhere on the network.**
+**2. Any static server, with a live Decaid elsewhere on the network.**
 
 ```bash
 python3 -m http.server 8000   # then open http://localhost:8000/
@@ -31,13 +32,12 @@ ES modules and the router's HTML-fragment fetches do not work from `file://`, so
 The backend host defaults to `window.location.hostname:8080`; point it at your gateway from
 Settings, which writes `localStorage.reaHostname`.
 
-**2. Decaid's "Live-edit from folder…"** (desktop) — point Decaid's settings at this directory. It
+**3. Decaid's "Live-edit from folder…"** (desktop) — point Decaid's settings at this directory. It
 serves the folder directly, so the skin runs on `:3000` same-origin with the gateway. Best fidelity.
 
-**3. Install from a release zip**, Download the latest release and go to skins in Decaid app, choose install from .zip and point to the downloaded zip file.
+**4. Install from a release zip**, Download the latest release and go to skins in Decaid app, choose install from .zip and point to the downloaded zip file.
 
 
-**4. Install from a URL**, while Decaid app is running go to http://localhost:8080/api/v1/plugins/settings.reaplugin/ui , scroll down to Install Skin and type in allofmeng/MSL and hit install.
 
 
 Decaid ships a **device simulator**, so all of the above work with no hardware attached.
