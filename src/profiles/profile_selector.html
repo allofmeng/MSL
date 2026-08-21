@@ -144,9 +144,12 @@
      overflow (usually the biggest field by far) -- a profile whose steps
      alone don't fit shows qr-share-too-big instead. See src/modules/qrShare.js. -->
 <dialog id="qr-share-modal" class="modal">
-    <div class="modal-box bg-[var(--box-color)] max-w-[450px] rounded-[20px] p-8 flex flex-col items-center gap-4">
+    <div class="modal-box bg-[var(--box-color)] max-w-[680px] rounded-[20px] p-8 flex flex-col items-center gap-4">
         <h3 class="font-bold text-[26px] text-[var(--text-primary)]">Scan to Download</h3>
-        <canvas id="qr-share-canvas" class="bg-white rounded-[8px]" style="image-rendering:pixelated; width:320px; height:320px;"></canvas>
+        <!-- Canvas size is set by qrShare.js from the module count: a dense code
+             has to be drawn larger or a phone camera cannot resolve it. -->
+        <canvas id="qr-share-canvas" class="bg-white rounded-[8px]" style="image-rendering:pixelated;"></canvas>
+        <p id="qr-share-url" class="text-[14px] text-[var(--low-contrast-white)] text-center break-all leading-snug max-h-[3.6em] overflow-hidden" style="display:none"></p>
         <p id="qr-share-warning" class="text-[16px] text-amber-500 text-center" style="display:none">Notes were cut to fit the QR code.</p>
         <p id="qr-share-too-big" class="text-[18px] text-red-500 text-center" style="display:none">This profile is too large to fit in a QR code, even without notes.</p>
         <button id="qr-share-modal-close" class="btn btn-sm btn-circle btn-ghost absolute right-4 top-4 text-[var(--text-primary)]">✕</button>
