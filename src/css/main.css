@@ -1,0 +1,676 @@
+/* Scaling container - initially hidden until scaled */
+#scaling-container {
+    overflow: hidden;
+}
+
+#scaled-content {
+    width: 1920px;
+    height: 1200px;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.15s ease-out;
+}
+
+#subpage-host {
+    width: 1920px;
+    height: 100%;
+}
+
+/* Subpage roots: settings/profile_editor carry h-full themselves, profile_selector
+   does not and stopped short of the canvas. Cover all of them in one place. */
+#subpage-host > div {
+    height: 100%;
+}
+
+/* Fixed-height header band. Without shrink:0 it is a shrinkable flex item, so any
+   overflow below it (profile_selector's grid asks for h-full = the whole root)
+   squeezes the header instead, and the button gaps come out short. */
+#subpage-header {
+    flex-shrink: 0;
+}
+
+/* h-full here means 100% of the root, which together with the header overflows it.
+   Flex instead so the grid takes what is left. */
+#profile-editor-grid {
+    height: auto;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+/* profile_selector's fixed panel heights (list 850, chart 675, notes 275) add up to
+   the design canvas exactly; grow the list and the graph so the pair still reaches
+   the bottom when the canvas is taller. Notes keeps its 275. */
+#profile-list,
+#profile-chart-wrap {
+    height: auto;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+#profile-chart-wrap {
+    display: flex;
+}
+
+#profile-chart-wrap > #plotly-chart {
+    height: auto;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+/* scaling.js grows #scaled-content past 1200 design rows on screens taller than
+   16:10 (4:3 iPads). These rules pass that height down so the extra space lands
+   in the chart rather than as an empty band at the bottom. */
+#main-page {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The header is a fixed 168px band. Without shrink:0 it is a shrinkable flex item,
+   and any overshoot in the growing chart below squeezes it to ~1px instead.
+
+   It is also a flex ROW internally. It used to position its two clusters
+   absolutely — favourites pinned left, controls pinned right — which meant
+   neither could see the other: turning on the optional buttons (Bengle's
+   Warmer, DYE, then Profiles) grew the right cluster leftwards until it drew
+   straight over the favourite buttons. In flow, the strip simply yields the
+   width instead, and since it scrolls (see #profile-fav-nav below) the
+   favourites it can no longer fit are one swipe away rather than lost.
+
+   The children's old top offsets (34px for the 98px-tall strip, 50px for the
+   67px-tall controls) were both vertical centring by hand, so align-items
+   reproduces their exact position. */
+#main-page > header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-left: 30px;
+    padding-right: 38px;
+}
+
+/* Kill the absolute positioning these carried in the markup. Left in place as
+   `position: static` overrides rather than by deleting every left-[…]/top-[…]
+   utility, because dyeStrip.js still adds and removes left-[30px]/left-[80px]
+   on the nav; static makes those inert instead of load-bearing. */
+#main-page > header > #dye-strip-toggle,
+#main-page > header > #profile-fav-nav,
+#main-page > header > #dye-strip,
+#main-page > header > #header-controls {
+    position: static;
+}
+
+/* The DYE2 mode toggle sat at x=18, 12px left of the strip's 30px. Negative
+   margin keeps that while the header's own padding still governs where the
+   favourites start when the toggle is hidden. */
+#main-page > header > #dye-strip-toggle {
+    flex: 0 0 auto;
+    margin-left: -12px;
+}
+
+#main-page > header > #header-controls {
+    flex: 0 0 auto;
+    margin-left: auto;   /* stay pinned right when the strip is narrower than its max */
+}
+
+/* min-height:0 lets the column shrink past its content instead of overflowing
+   (flex items default to min-height:auto). */
+#main-page > div,
+#main-page main {
+    min-height: 0;
+}
+
+/* flex-basis 0, not auto: with auto, the chart's own content height feeds back
+   into the column's base size and the siblings (header band, telemetry row) get
+   shrunk to compensate. Basis 0 means these two absorb free space only. */
+#main-row {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+#chart-wrap {
+    flex: 1 1 0;
+    min-height: 650px;   /* the design height -- never shrink below it */
+}
+
+/* Scoped to the main page on purpose: profile_selector.html reuses the
+   #plotly-chart id inside an auto-height wrapper, where height:100% collapses it. */
+#main-page #plotly-chart {
+    height: 100%;
+}
+
+/* Shot Settings sidebar is h-[1036px] (= 1200 - 168 header, near enough). Let it
+   stretch with the canvas; its own justify-around then spaces the rows evenly. */
+#shot-settings {
+    height: auto;
+}
+
+/* The footer band is absolutely placed against the canvas at top:958 (958 = 168
+   header + 790 chart row; the panels are h-60 = 240 tall, ending at 1198). Anchor
+   it to the bottom instead so it stays put when the canvas grows, and reserve its
+   242px inside <main> so the growing chart stops flush above it rather than
+   sliding underneath. Both are no-ops at the design height of 1200. */
+#main-page main {
+    padding-bottom: 242px;
+}
+
+#shot-history-panel,
+#shot-data-panel {
+    top: auto;
+    bottom: 2px;
+}
+
+/* Settings body is h-[1088px] = 1200 - 112 header. Grow it with the canvas so the
+   panels reach the bottom instead of leaving a bare strip of page background. */
+#settings-body {
+    height: auto;
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+/* Fixed h-[790px] in the markup is 116 + 675 at design height; let it track the
+   chart column instead so the two stay flush when the canvas grows. */
+#ghc-controls {
+    height: auto;
+}
+
+#scaled-content.scaled {
+    visibility: visible;
+    opacity: 1;
+}
+@font-face { font-family: 'Inter'; src: url('../ui/Inter-Thin.ttf') format('truetype'); font-weight: 100; }
+@font-face { font-family: 'Inter'; src: url('../ui/Inter-ExtraLight.ttf') format('truetype'); font-weight: 200; }
+@font-face { font-family: 'Inter'; src: url('../ui/Inter-Light.ttf') format('truetype'); font-weight: 300; }
+@font-face { font-family: 'Inter'; src: url('../ui/Inter-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Inter'; src: url('../ui/Inter-Medium.ttf') format('truetype'); font-weight: 500; }
+@font-face { font-family: 'Inter'; src: url('../ui/Inter-SemiBold.ttf') format('truetype'); font-weight: 600; }
+@font-face { font-family: 'Inter'; src: url('../ui/Inter-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Inter'; src: url('../ui/Inter-ExtraBold.ttf') format('truetype'); font-weight: 800; }
+@font-face { font-family: 'Inter'; src: url('../ui/Inter-Black.ttf') format('truetype'); font-weight: 900; }
+
+@font-face { font-family: 'NotoSansMono'; src: url('../ui/NotoSansMono-SemiBold.ttf') format('truetype'); font-weight: 600; }
+@font-face { font-family: 'NotoSansMono'; src: url('../ui/NotoSansMono-ExtraBold.ttf') format('truetype'); font-weight: 800; }
+
+html, body {
+    overflow: hidden;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+}
+
+.font-mono-custom {
+    font-family: 'NotoSansMono', monospace;
+}
+
+.font-inter-custom {
+    font-family: 'Inter', sans-serif;
+}
+
+:root {
+    --mimoja-blue-v2: #385A92;
+    --mimoja-blue: #385A92;
+
+    --profile-button-outline-color: #c5cdda;
+    --profile-button-background-color: #FFFFFF;
+    --profile-button-text-color: #7583b0;
+    --box-color: #f8f9fb;
+    --profileselectorbg: #FFFFFF;
+    --low-contrast-white: #959595;
+    --text-primary: #121212; /* Renamed from --dark-gray */
+    --text-primary-disabled: #c8cacc;
+    --preset-value-color: #AAAAAA;
+    --preset-value-color-disabled: #e3e4e6;
+    --preset-label-selected-color: #777777;
+    --green: #65Ac8a;
+    --button-grey: #EDEDED;
+
+    /* Plus Minus Flash Colors (Light Mode) */
+    --plus-minus-flash-on-color: #b8b8b8;
+    --plus-minus-flash-on-color2: #cfcfcf;
+    --plus-minus-flash-off-color: #ededed;
+
+    /* Theme toggle colors */
+    --bg--togglebtn: #FFFFFF;
+    --btn-togglebgcolor: #959595;
+    --bgmain-color : #FFFFFF;
+    --data-card-title-text-color:#707485;
+    /* left label text colors */
+    --left-label-text : #385992;
+    /*status mesg */
+    --heatingstatus:#1967d4;
+    --status-ready-green:#17c29a;
+    --status-green-color: #0CA581;
+    --status-red-color: #DA515E;
+    --status-clickable-color: #1967d4;
+    --fav-button-wait:#e3e4e6;
+
+    /* Presence Settings (Light Mode) */
+    --presence-card-bg: #f8f9fb;
+    --presence-card-alt-bg: #ffffff;
+    --presence-card-text: #121212;
+    --presence-input-bg: #ffffff;
+    --presence-input-text: #121212;
+    --presence-input-border: #c5cdda;
+    --button-primary-bg: #385a92;
+    --button-primary-text: #ffffff;
+    --button-secondary-bg: #e8e8e8;
+    --button-secondary-text: #121212;
+    /* bg colors in profile editor */
+    --secondary-button-bg:#b6c3d7;
+    --secondary-button-outline:#385a92;
+
+    /* Text that reads as accent in light and as plain near-white in dark.
+       --mimoja-blue can't do this on its own: dark-mode.css turns it into
+       #292c38, a surface colour, so `color: var(--mimoja-blue)` goes almost
+       black on a dark background. Use this for text; keep --mimoja-blue for
+       borders and fills. */
+    --accent-text: var(--mimoja-blue);
+}
+
+[data-theme='dark'] {
+    --profile-button-outline-color: #17191e;
+    --profile-button-background-color: #292c38;
+    --profile-button-text-color: #FFFFFF;
+    --box-color: #17191e;
+    --profileselectorbg:#17191e;
+    --button-grey: #2a2d36;
+    --secondary-button-bg: #2a3a5a;
+    /* Plus Minus Flash Colors (Dark Mode) */
+    --plus-minus-flash-on-color: #4a4f5e;
+    --plus-minus-flash-on-color2: #3a3e4a;
+    --plus-minus-flash-off-color: #2a2d36;
+    --bgmain-color : #101217;
+    --mimoja-blue-v2: #415996;
+    --text-primary: #e8e8e8;
+    --text-primary-disabled: #4a4a4a;
+    --preset-value-color: #4e5559;
+    --preset-value-color-disabled: #262a2c;
+    --preset-label-selected-color: #999999;
+    --data-card-title-text-color:#707485;
+     /* left label text colors */
+    --left-label-text :#415996;
+    --status-green-color: #0CA581; /* Same as light mode */
+    --status-red-color: #DA515E;   /* Same as light mode */
+    --status-clickable-color: #415996;
+
+    /* Presence Settings (Dark Mode) */
+    --presence-card-bg: #17181D;
+    --presence-card-alt-bg: #2d3a52;
+    --presence-card-text: #e8e8e8;
+    --presence-input-bg: #292c38;
+    --presence-input-text: #e8e8e8;
+    --presence-input-border: #415996;
+    --button-primary-bg: #415996;
+    --button-primary-text: #e8e8e8;
+    --button-secondary-bg: #292c38;
+    --button-secondary-text: #e8e8e8;
+    --accent-text: var(--text-primary);   /* #e8e8e8 */
+}
+
+/* In-app webview: the host OS owns fullscreen, so the toggle is dead weight on
+   every page. index.html, profile_selector.html and settings.html each have their
+   own #fullscreen-toggle-btn and the sub-page ones are injected by the router
+   after boot, so this is a rule on <html> rather than a per-button hide.
+   help-overlay.css deliberately outranks this on the main page (two IDs beats
+   one) to keep that slot laid out but invisible for the help button. */
+.is-webview #fullscreen-toggle-btn {
+    display: none !important;
+}
+
+/* New classes for status messages */
+/* Status messages -- skin.tcl:653-657. The font names are decorative; the real
+   size is load_font's numeric arg, and the weight is whichever .ttf it points
+   at. Inter-HeavyBold24 is load_font "$InterSemiBold" 17 (skin.tcl:283) and
+   mono18 is NotoSansMono-SemiBold 17 (skin.tcl:330), so all three are N=17 ->
+   int(0.65*17) = 11pt = 33px, SemiBold 600. */
+.status-msg-green {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 33px;
+    color: var(--status-green-color);
+}
+
+.status-msg-red {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 33px;
+    color: var(--status-red-color);
+}
+
+.status-msg-clickable {
+    font-family: 'NotoSansMono', monospace;
+    font-weight: 600;
+    font-size: 33px;
+    color: var(--status-clickable-color);
+    cursor: pointer;
+}
+
+.profile-selector-bg {
+    background-color: var(--profileselectorbg);
+}
+
+.flash {
+    background-color: #395ab9 !important;
+    color: white !important;
+    border-radius: 0.5rem;
+    transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+}
+
+#theme-toggle:checked + .togglebtn-change::before {
+    transition: 0.3s;
+    transform: translateX(23px);
+}
+
+.togglebtn-change {
+    background-color: var(--bg--togglebtn);
+}
+
+.togglebtn-change::before {
+    content: '';
+    display: block;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    background-color: var(--btn-togglebgcolor);
+    transition: 0.3s;
+    transform: translateX(0);
+}
+
+.no-select {
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes button-flash {
+    0% { background-color: var(--plus-minus-flash-on-color2); }
+    14% { background-color: var(--plus-minus-flash-on-color); } /* Approximately 40ms into a 280ms animation */
+    71% { background-color: var(--plus-minus-flash-on-color2); } /* Approximately 200ms into a 280ms animation */
+    100% { background-color: transparent; } /* Revert to original, allowing CSS classes to take over */
+}
+
+.flash-animation {
+    animation: button-flash 0.28s linear forwards; /* 'forwards' keeps the end state */
+}
+
+/* Brightness Slider Styling */
+.brightness-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 200px;
+  height: 8px;
+  border-radius: 5px;
+  /* Unfilled by default. syncBrightnessSliderFill() in settings.js paints the
+     filled portion from the value, aligned to the thumb centre. This used to be
+     a fixed 75% stop, so the bar showed 75% on first paint regardless of the
+     actual brightness, until the user dragged it. */
+  background: #e8e8e8;
+  outline: none;
+  cursor: pointer;
+}
+
+.brightness-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #385a92;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  border: 2px solid #c5cdda;
+  transition: all 0.2s ease;
+}
+
+.brightness-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(56, 90, 146, 0.4);
+}
+
+.brightness-slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #385a92;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  border: 2px solid #c5cdda;
+  transition: all 0.2s ease;
+}
+
+.brightness-slider::-moz-range-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(56, 90, 146, 0.4);
+}
+
+.brightness-slider::-moz-range-track {
+  background: transparent;
+  border: none;
+}
+
+.brightness-slider::-moz-range-progress {
+  background: #385a92;
+  height: 8px;
+  border-radius: 5px;
+}
+
+/* Brightness Toggle Button Styling */
+.brightness-toggle-checkbox {
+  display: none;
+}
+
+.brightness-toggle-label {
+  display: block;
+  width: 104.8px;
+  height: 62.88px;
+  background-color: #e8e8e8;
+  border: 2px solid #c9c9c9;
+  border-radius: 2617.374px;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.3s ease;
+}
+
+.brightness-toggle-label::after {
+  content: '';
+  position: absolute;
+  width: 41.92px;
+  height: 41.92px;
+  background-color: #c9c9c9;
+  border-radius: 50%;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  transition: left 0.3s ease;
+}
+
+.brightness-toggle-checkbox:checked + .brightness-toggle-label {
+  background-color: #385a92;
+  border-color: #385a92;
+}
+
+.brightness-toggle-checkbox:checked + .brightness-toggle-label::after {
+  background-color: #ffffff;
+  left: calc(100% - 41.92px - 8px);
+}
+
+/* Button styling for Wake Lock and Presence Settings */
+.btn.btn-primary {
+  background-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  border-color: var(--button-primary-bg);
+}
+
+.btn.btn-primary:hover {
+  background-color: var(--button-primary-bg);
+  opacity: 0.9;
+}
+
+.btn {
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  border-color: var(--button-secondary-bg);
+}
+
+.btn:hover {
+  background-color: var(--button-secondary-bg);
+  opacity: 0.9;
+}
+
+/* Toggle styling for Wake Lock and Presence Settings */
+.toggle {
+  background-color: #e8e8e8;
+  border-color: #c5cdda;
+}
+
+.toggle:checked {
+  background-color: var(--button-primary-bg);
+  border-color: var(--button-primary-bg);
+}
+
+[data-theme='dark'] .toggle {
+  background-color: #292c38;
+  border-color: #415996;
+}
+
+[data-theme='dark'] .toggle:checked {
+  background-color: var(--button-primary-bg);
+  border-color: var(--button-primary-bg);
+}
+
+/* Save-As / Overwrite dialog backdrop — plus a soft blur behind the modal so
+   the editor reads as dimmed. */
+.pe-save-dialog::backdrop {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+[data-theme='dark'] .pe-save-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+/* Profile selector heading + RESET / EDIT: accent in light, near-white in dark.
+   Written here rather than as a text-[…] class on the elements because app.css
+   is a pre-built Tailwind bundle — an arbitrary utility whose value isn't
+   already compiled into it produces no rule at all. */
+#selected_profile_name,
+#reset_btn,
+#edit_profile,
+#share_profile {
+  color: var(--accent-text);
+}
+
+/* Favourites strip: five fixed buttons, then the most-used non-favourite
+   profiles appended by profileManager.renderFrequentProfiles(). The viewport is
+   exactly the five favourites (5x240 + 4x15 gaps = 1260), so the extras live
+   off the right edge and are reached by dragging the strip leftwards.
+
+   overflow-y is hidden, not auto: the buttons are the full height of the strip,
+   and an auto vertical axis lets a stray touch drag them out of the header.
+   The scrollbar itself is hidden — on the machine's touchscreen it is a
+   permanent grey smear under the buttons and nobody drags it. .has-overflow
+   (set only when extras exist) fades the right edge instead, so there is
+   something to see before you swipe; .at-end drops the fade once you're
+   there. */
+#profile-fav-nav,
+#dye-strip {
+  /* Takes the width the right-hand controls leave, capped at the five
+     favourites (5x240 + 4x15 = 1260) so nothing spreads out when there is
+     room to spare. min-width:0 is what actually lets it shrink — a flex item
+     defaults to min-width:auto, i.e. never smaller than its content, which
+     would push the controls off the header instead. */
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 1260px;
+}
+
+#profile-fav-nav {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+#profile-fav-nav::-webkit-scrollbar {
+  display: none;
+}
+
+/* Buttons carry w-[240px] but are flex items in a scroller: without a fixed
+   basis they get squeezed to share 1260px between all of them. */
+#profile-fav-nav > button {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+#profile-fav-nav.has-overflow:not(.at-end) {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent 100%);
+}
+
+/* Frequent (non-favourite) buttons: same footprint as a favourite so the row
+   keeps its rhythm, quieter border so the five real favourites still read as
+   the primary set. */
+.frequent-profile-btn {
+  opacity: 0.92;
+}
+
+/* ── Settings navigation ─────────────────────────────────────────────────────
+   Idle items used to be text-[#959595] straight in the markup, which measures
+   2.84:1 against the light panel (#f8f9fb) — under the 4.5:1 AA bar and under
+   even the 3:1 large-text bar, on a glossy tablet that lives in a bright
+   kitchen. Ten of the eleven categories were the hard-to-read ones. Colour now
+   comes from the theme's own text variable, and the selected item carries a
+   semantic .is-active class instead of colour utilities being added and removed
+   by hand in four different places in settings.js. */
+#settings-body .settings-nav-btn,
+#settings-body .settings-subnav-btn {
+  color: var(--text-primary);
+  min-height: 72px;          /* was ~60px — a wet thumb on a kitchen tablet */
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+#settings-body .settings-nav-btn:hover,
+#settings-body .settings-subnav-btn:hover {
+  background-color: #2c4a7a;
+  color: #fff;
+}
+
+#settings-body .settings-nav-btn.is-active,
+#settings-body .settings-subnav-btn.is-active {
+  background-color: #2c4a7a;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Group headings replace the old 1..11 numbering: they say what the settings
+   below act on, which the numbers never did. */
+.settings-nav-group {
+  padding: 22px 16px 6px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--low-contrast-white);
+}
+.settings-nav-group:first-child { padding-top: 6px; }
+
+/* Assign-to-favourite 1..5, under the profile list.
+   These were sized with w-[68px] h-[68px]. app.css is a pre-built Tailwind
+   bundle and those two arbitrary values were never compiled into it, so the
+   buttons had no width or height at all: each one shrank to its digit (20-26px
+   wide) and took its height from the line box, giving five differently-sized
+   ovals where round buttons were intended. Sized here instead, where the rule
+   cannot silently not exist, with a fixed flex basis so the row cannot squeeze
+   them either. */
+.fav-assign-btn {
+  width: 68px;
+  height: 68px;
+  flex: 0 0 68px;
+}
