@@ -41,6 +41,8 @@ let previousMachineState = null;
 let scaleWebSocket = null;
 let displayWebSocket = null;
 let displayWebSocketReady = false;
+// Last display command that could not be sent; flushed by the socket's onopen.
+let pendingDisplayCommand = null;
 // Latest DisplayState frame from ws/v1/display. Null until the socket delivers
 // its first snapshot.
 let lastDisplayState = null;
@@ -461,8 +463,10 @@ export function connectDeviceWebSocket(onData, onReconnect, onDisconnect, onErro
     if (onDisconnect) deviceDisconnectListeners.add(onDisconnect);
     if (onError) deviceErrorListeners.add(onError);
 
-    if (deviceWebSocket && deviceWebSocket.readyState === WebSocket.OPEN) {
-        logger.info('Device WebSocket already connected');
+    // < CLOSING covers CONNECTING too: an OPEN-only test opened a second socket
+    // over one still handshaking, orphaning the first.
+    if (deviceWebSocket && deviceWebSocket.readyState < WebSocket.CLOSING) {
+        logger.info('Device WebSocket already active');
         return;
     }
 
@@ -523,7 +527,7 @@ export function connectDeviceWebSocket(onData, onReconnect, onDisconnect, onErro
 export function sendDeviceCommand(command) {
     if (!deviceWebSocket || deviceWebSocket.readyState !== WebSocket.OPEN) {
         logger.error('Device WebSocket is not connected. Cannot send command.');
-        return;
+        throw new Error('Device WebSocket is not connected. Cannot send command.');
     }
 
     try {
@@ -601,8 +605,8 @@ export function connectDisplayWebSocket(onData) {
         if (lastDisplayState) onData(lastDisplayState);
     }
 
-    if (displayWebSocket && displayWebSocket.readyState === WebSocket.OPEN) {
-        logger.info('Display WebSocket already connected');
+    if (displayWebSocket && displayWebSocket.readyState < WebSocket.CLOSING) {
+        logger.info('Display WebSocket already active');
         return;
     }
 
@@ -618,6 +622,11 @@ export function connectDisplayWebSocket(onData) {
         // restart) silently lets the tablet sleep again unless we re-request it.
         if (isWakeLockEnabled()) {
             enableWakeLock().catch((e) => logger.warn('Failed to re-arm wake-lock on connect:', e));
+        }
+        if (pendingDisplayCommand) {
+            const queued = pendingDisplayCommand;
+            pendingDisplayCommand = null;
+            sendDisplayCommand(queued);
         }
     };
 
@@ -656,26 +665,12 @@ export function connectDisplayWebSocket(onData) {
  * @param {number} [command.brightness] - Brightness value 0-100 (required for setBrightness)
  */
 export function sendDisplayCommand(command) {
-    if (!displayWebSocket) {
-        logger.error('Display WebSocket not initialized. Cannot send command.');
-        return;
-    }
-
-    if (!displayWebSocketReady || displayWebSocket.readyState !== WebSocket.OPEN) {
+    // A reconnect takes seconds (reconnectInterval 3000), so the old 100 ms
+    // one-shot retry dropped the command every time it mattered -- the dim/restore
+    // that follows a socket blip. Hold the latest one and flush it on open.
+    if (!displayWebSocket || !displayWebSocketReady || displayWebSocket.readyState !== WebSocket.OPEN) {
         logger.warn('Display WebSocket not ready. Queuing command:', command);
-        // Retry after a short delay
-        setTimeout(() => {
-            if (displayWebSocketReady && displayWebSocket.readyState === WebSocket.OPEN) {
-                try {
-                    displayWebSocket.send(JSON.stringify(command));
-                    logger.info('Display command sent (after retry):', command);
-                } catch (error) {
-                    logger.error('Error sending display command on retry:', error);
-                }
-            } else {
-                logger.error('Display WebSocket still not ready after retry.');
-            }
-        }, 100);
+        pendingDisplayCommand = command;
         return;
     }
 
@@ -698,9 +693,12 @@ export function getDisplayWebSocket() {
  * plus direct {error} replies for bad commands. Both are passed to onData.
  * @param {Function} onData - Callback for update-state / error messages
  */
-export function connectUpdateWebSocket(onData) {
-    if (updateWebSocket && updateWebSocket.readyState === WebSocket.OPEN) {
-        logger.info('Update WebSocket already connected');
+export function connectUpdateWebSocket(onData, onOpen) {
+    if (updateWebSocket && updateWebSocket.readyState < WebSocket.CLOSING) {
+        logger.info('Update WebSocket already active');
+        // Only when genuinely ready: onOpen sends a command straight away, and this
+        // branch now also covers a CONNECTING socket, where that would throw.
+        if (onOpen && updateWebSocketReady) onOpen();
         return;
     }
 
@@ -711,6 +709,7 @@ export function connectUpdateWebSocket(onData) {
     updateWebSocket.onopen = () => {
         logger.info('Update WebSocket connected');
         updateWebSocketReady = true;
+        if (onOpen) onOpen();
     };
 
     updateWebSocket.onmessage = (event) => {
@@ -737,25 +736,12 @@ export function connectUpdateWebSocket(onData) {
  * @param {Object} command - { command: 'check' | 'install' }
  */
 export function sendUpdateCommand(command) {
-    if (!updateWebSocket) {
-        logger.error('Update WebSocket not initialized. Cannot send command.');
-        return;
-    }
-
-    if (!updateWebSocketReady || updateWebSocket.readyState !== WebSocket.OPEN) {
-        logger.warn('Update WebSocket not ready. Retrying command:', command);
-        setTimeout(() => {
-            if (updateWebSocketReady && updateWebSocket.readyState === WebSocket.OPEN) {
-                try {
-                    updateWebSocket.send(JSON.stringify(command));
-                } catch (error) {
-                    logger.error('Error sending update command on retry:', error);
-                }
-            } else {
-                logger.error('Update WebSocket still not ready after retry.');
-            }
-        }, 100);
-        return;
+    // Throws rather than retrying: the caller is a button press, so a command
+    // that cannot go out has to reach the user, not a log line.
+    if (!updateWebSocket || !updateWebSocketReady || updateWebSocket.readyState !== WebSocket.OPEN) {
+        const error = new Error('Update WebSocket is not connected');
+        logger.error(error.message);
+        throw error;
     }
 
     try {
@@ -763,6 +749,7 @@ export function sendUpdateCommand(command) {
         logger.info('Update command sent:', command);
     } catch (error) {
         logger.error('Error sending update command:', error);
+        throw error;
     }
 }
 
@@ -1477,6 +1464,9 @@ export async function setDe1Settings(settings) {
             const errorBody = await response.text();
             throw new Error(`Failed to set DE1 settings. Status: ${response.status}, Body: ${errorBody}`);
         }
+        // Expire, but keep data for the error fallbacks below: a write means the
+        // cached copy is stale, and a 40-60 s TTL would otherwise serve it back.
+        de1SettingsCache.timestamp = null;
         logger.info('DE1 settings updated successfully:', settings);
     } catch (error) {
         logger.error('Error setting DE1 settings:', error);
@@ -1495,7 +1485,10 @@ export async function getDe1AdvancedSettings() {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6-second timeout
+    // 9 MMR reads over BLE; they queue behind whatever the machine is already
+    // doing, so 6 s aborted a request that was merely slow.
+    const timeoutMs = 20000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const url = `${API_BASE_URL}/machine/settings/advanced`;
     logger.info(`Fetching advanced settings from: ${url}`); // Log the URL
@@ -1523,7 +1516,7 @@ export async function getDe1AdvancedSettings() {
     } catch (error) {
         clearTimeout(timeoutId);
         if (error.name === 'AbortError') {
-            logger.error(`Error in getDe1AdvancedSettings: Request timed out after 5 seconds.`);
+            logger.error(`Error in getDe1AdvancedSettings: Request timed out after ${timeoutMs} ms.`);
             // window.location.reload(); // Reload the page on timeout to attempt recovery
         } else {
             logger.error("Error in getDe1AdvancedSettings:", error);
@@ -1556,6 +1549,7 @@ export async function setDe1AdvancedSettings(settings) {
             const errorBody = await response.text();
             throw new Error(`Failed to set DE1 advanced settings. Status: ${response.status}, Body: ${errorBody}`);
         }
+        de1AdvancedSettingsCache.timestamp = null; // expire, keep data for the error fallback
         logger.info('DE1 advanced settings updated successfully:', settings);
     } catch (error) {
         logger.error('Error setting DE1 advanced settings:', error);
@@ -1572,6 +1566,8 @@ export async function resetDe1Settings() {
             const errorBody = await response.text();
             throw new Error(`Failed to reset DE1 settings. Status: ${response.status}, Body: ${errorBody}`);
         }
+        de1SettingsCache.timestamp = null;         // expire, keep data for the error fallback
+        de1AdvancedSettingsCache.timestamp = null;
         logger.info('DE1 settings reset to defaults');
     } catch (error) {
         logger.error('Error resetting DE1 settings:', error);
@@ -1593,6 +1589,7 @@ export async function setReaSettings(settings) {
             const errorBody = await response.text();
             throw new Error(`Failed to set REA settings. Status: ${response.status}, Body: ${errorBody}`);
         }
+        reatsettingscache.timestamp = null; // expire, keep data for the error fallback
         logger.info('REA settings updated successfully:', settings);
     } catch (error) {
         logger.error('Error setting REA settings:', error);

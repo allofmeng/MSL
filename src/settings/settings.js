@@ -296,9 +296,9 @@ function renderErrorState(title, message) {
     return `
         <div class="flex flex-col gap-[60px] items-start relative w-full max-w-full overflow-x-hidden" role="alert">
             <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] not-italic relative text-[var(--text-primary)] text-[36px] text-center w-full">
-                <p class="leading-[1.2]">${title}</p>
+                <p class="leading-[1.2]">${escapeHtml(title)}</p>
             </div>
-            <div class="text-red-500 p-4 text-[24px] text-center w-full">Failed to load settings: ${message}</div>
+            <div class="text-red-500 p-4 text-[24px] text-center w-full">Failed to load settings: ${escapeHtml(message)}</div>
             <button class="bg-[#385a92] h-[72px] px-[48px] rounded-[72px] text-white text-[24px] font-bold mx-auto mt-4" onclick="window.retryLoadSettings()" data-i18n-key="Retry">Retry</button>
         </div>
     `;
@@ -5533,11 +5533,15 @@ function renderAppUpdateBlock(state) {
 // Connect ws/v1/update and keep #app-update-section in sync with AppUpdateState.
 // Exposes window.checkAppUpdate / window.installAppUpdate for the buttons.
 function initAppUpdateSection() {
-    window.checkAppUpdate = () => {
-        settingsCache.appUpdateChecked = true;
-        sendUpdateCommand({ command: 'check' });
+    const send = (command) => {
+        try {
+            sendUpdateCommand({ command });
+        } catch (error) {
+            ui.showToast(error.message, 5000, 'error');
+        }
     };
-    window.installAppUpdate = () => sendUpdateCommand({ command: 'install' });
+    window.checkAppUpdate = () => send('check');
+    window.installAppUpdate = () => send('install');
 
     connectUpdateWebSocket((data) => {
         // Command-level errors arrive as a direct {error[, url]} reply.
@@ -5545,13 +5549,15 @@ function initAppUpdateSection() {
             ui.showToast(data.url ? `${data.error} — ${data.url}` : data.error, 5000, 'error');
             return;
         }
+        // Mark the check only once the socket reports one running, so a send that
+        // failed no longer leaves the pill claiming it checked.
+        if (data?.phase === 'checking') settingsCache.appUpdateChecked = true;
         settingsCache.appUpdateState = data;
         const section = document.getElementById('app-update-section');
         if (section) section.innerHTML = renderAppUpdateBlock(data);
-    });
-
-    // Auto-check on entering the page so the status pill resolves without a manual click.
-    window.checkAppUpdate();
+    // Auto-check on entering the page, but only after the socket opens: sending
+    // before that went nowhere and the status pill never resolved.
+    }, window.checkAppUpdate);
 }
 
 // Render updates settings
@@ -5940,6 +5946,16 @@ function getCategoryTitle(category) {
     }
 }
 
+// Module-scope, so re-entering settings re-registers the SAME function and
+// addEventListener dedups it. The anonymous closure this replaced stacked a new
+// listener on every visit, and every one of them re-rendered on a language change.
+function handleSettingsLanguageChange() {
+    translatePage();
+    if (activeSettingsCategory) {
+        updateSettingsContentArea(activeSettingsCategory);
+    }
+}
+
 // Initialize the settings page
 export async function initializeSettings() {
     resetPendingChanges();
@@ -6080,12 +6096,7 @@ export async function initializeSettings() {
     setLanguage(getCurrentLanguage());
 
     // Re-translate settings content whenever language changes
-    document.addEventListener('streamline:languagechange', () => {
-        translatePage();
-        if (activeSettingsCategory) {
-            updateSettingsContentArea(activeSettingsCategory);
-        }
-    });
+    document.addEventListener('streamline:languagechange', handleSettingsLanguageChange);
 
     // Expose update functions to global scope for inline event handlers
     window.updateReaSetting = updateReaSetting;
@@ -7650,7 +7661,9 @@ function renderFilteredSubcategories(mainCategoryKey, searchTerm) {
 function highlightMatch(text, searchTerm) {
     if (!searchTerm) return text;
 
-    const regex = new RegExp(`(${searchTerm})`, 'gi');
+    // Escaped: the term is whatever the user typed, so '(' alone threw here.
+    const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedTerm})`, 'gi');
     return text.replace(regex, '<mark class="bg-yellow-300 text-black">$1</mark>');
 }
 
@@ -8492,9 +8505,9 @@ window.handleForgetDevice = async function(deviceId, name) {
 // Rescan to reconnect an unavailable (remembered-absent) device — it reconnects
 // when it reappears in discovery. A direct connect would fail (no transport).
 window.handleDeviceRescan = function() {
-    // sendDeviceCommand returns silently (doesn't throw) when the device socket
-    // is closed — exactly the state we're often in when reconnecting. Guard so
-    // we don't show a "scanning" toast for a command that never went out.
+    // Guard rather than let sendDeviceCommand throw: the socket is often closed
+    // exactly when the user reaches for Reconnect, and this reads better than an
+    // exception message.
     const ws = getDeviceWebSocket?.();
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         ui.showToast("Not connected — can't rescan right now", 5000, 'error');

@@ -183,6 +183,7 @@ function clamp(value, min, max) {
 }
 
 function roundTo(value, step) {
+    value = typeof value === 'number' ? value : parseFloat(value) || 0; // inputs arrive as strings
     const decimals = step < 1 ? String(step).split('.')[1].length : 0;
     return parseFloat(value.toFixed(decimals));
 }
@@ -1758,8 +1759,15 @@ async function saveProfile() {
             // hidden, restorable snapshot instead of letting the server drop it on
             // rehash. The new record links back via parentId, so /lineage returns
             // the full history the Revert picker reads.
-            try { await updateProfileVisibility(src.id, 'hidden'); } catch (_) {}
+            // Upload first, hide second: hiding up front left the user with no
+            // visible profile at all if the upload then failed.
             saved = await uploadProfileWithParent(editorState.profile, src.id);
+            // The server dedups by content hash, so an edit that lands back on an
+            // existing (hidden) profile returns that record still hidden.
+            if (saved.visibility !== 'visible') {
+                saved = await updateProfileVisibility(saved.id, 'visible');
+            }
+            try { await updateProfileVisibility(src.id, 'hidden'); } catch (_) {}
         } else {
             // Presentation-only change (title/author/notes) → same id, PUT in place.
             saved = await updateProfile(src.id, editorState.profile);
