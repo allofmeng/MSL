@@ -10,7 +10,7 @@
 //
 // BUMP THIS when cutting a release, in the same step as pushing the git tag —
 // and keep it equal to skin-manifest.json's `version`.
-export const APP_VERSION = '0.0.10';
+export const APP_VERSION = '0.0.11';
 
 // Our skin id as registered with Decaid (matches skin-manifest.json `id` /
 // reaMetadata.skinId). Decaid keys installed skins by this string: changing it
