@@ -59,3 +59,50 @@ test('base64url survives padding and the - _ alphabet', async () => {
     const bytes = new Uint8Array([0xfb, 0xff, 0x00]); // encodes to '-' and '_'
     assert.match(Buffer.from(bytes).toString('base64url'), /[-_]/);
 });
+
+// ── Sender → receiver, the contract that actually matters ───────────────────
+// qrShare.js builds the link and docs/share.html reads it. They are in
+// different halves of the repo and only agree by convention, so the round trip
+// is tested rather than assumed.
+const { buildShareUrl, SHARE_BASE_URL } = await import('../src/modules/qrShare.js');
+
+const realProfile = JSON.parse(
+    readFileSync(new URL('../src/profiles/80s_Espresso.json', import.meta.url), 'utf8'));
+
+test('the link points at the page that decodes it', () => {
+    assert.equal(SHARE_BASE_URL.endsWith('/share.html'), true);
+    // The page has to exist where the link says it does: /docs on main is what
+    // GitHub Pages publishes.
+    assert.ok(readFileSync(new URL('../docs/share.html', import.meta.url), 'utf8').length > 0);
+});
+
+test('a real profile survives the round trip', async () => {
+    const { url, notesDropped } = await buildShareUrl(realProfile);
+    assert.equal(notesDropped, false);
+    assert.ok(url.startsWith(SHARE_BASE_URL + '#'));
+    assert.deepEqual(await decodePayload(url.split('#')[1]), realProfile);
+});
+
+test('the whole link fits the QR byte budget', async () => {
+    const { url } = await buildShareUrl(realProfile);
+    assert.ok(url.length <= 2953, `link is ${url.length} bytes`);
+});
+
+test('notes are dropped only when the profile will not otherwise fit', async () => {
+    // Genuinely random, so gzip cannot squeeze it away — a periodic filler
+    // compresses down to nothing and the profile fits after all.
+    const notes = Buffer.from(crypto.getRandomValues(new Uint8Array(6000))).toString('base64');
+    const { url, notesDropped } = await buildShareUrl({ ...realProfile, notes });
+    assert.equal(notesDropped, true);
+    const decoded = await decodePayload(url.split('#')[1]);
+    assert.equal(decoded.notes, undefined);
+    assert.equal(decoded.title, realProfile.title, 'everything else is intact');
+});
+
+test('a profile too large even without notes reports itself', async () => {
+    const steps = Array.from({ length: 400 }, (_, i) => ({
+        name: `step ${i} ${Math.random().toString(36)}`, temperature: '93', seconds: '5',
+        pump: 'pressure', pressure: String(i % 12),
+    }));
+    assert.equal(await buildShareUrl({ title: 'Huge', steps }), null);
+});

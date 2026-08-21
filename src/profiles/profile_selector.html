@@ -46,11 +46,11 @@
             <div id="profile-list" class=" p-3 space-y-1.5 text-[30px] text-[var(--text-primary)] overflow-y-auto min-h-0 h-[850px]" role="listbox" aria-label="Available Profiles">
             </div>
             <div class="p-6 border-t border-base-300 flex items-center space-x-[22px]">
-                <button id='assign-fav-btn-0' aria-label="Assign to Favorite 1" class="w-[68px] h-[68px] rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">1</button>
-                <button id='assign-fav-btn-1' aria-label="Assign to Favorite 2" class="w-[68px] h-[68px] rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">2</button>
-                <button id='assign-fav-btn-2' aria-label="Assign to Favorite 3" class="w-[68px] h-[68px] rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">3</button>
-                <button id='assign-fav-btn-3' aria-label="Assign to Favorite 4" class="w-[68px] h-[68px] rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">4</button>
-                <button id='assign-fav-btn-4' aria-label="Assign to Favorite 5" class="w-[68px] h-[68px] rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">5</button>
+                <button id='assign-fav-btn-0' aria-label="Assign to Favorite 1" class="fav-assign-btn rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">1</button>
+                <button id='assign-fav-btn-1' aria-label="Assign to Favorite 2" class="fav-assign-btn rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">2</button>
+                <button id='assign-fav-btn-2' aria-label="Assign to Favorite 3" class="fav-assign-btn rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">3</button>
+                <button id='assign-fav-btn-3' aria-label="Assign to Favorite 4" class="fav-assign-btn rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">4</button>
+                <button id='assign-fav-btn-4' aria-label="Assign to Favorite 5" class="fav-assign-btn rounded-full border-2 border-[var(--mimoja-blue)] flex items-center justify-center text-[var(--mimoja-blue)] text-[30px] font-semibold">5</button>
                 <span class="text-[var(--mimoja-blue)] font-semibold text-xl ml-2" data-i18n-key="Assign favourite" aria-hidden="true">Assign favourite</span>
             </div>
         </div>
@@ -69,6 +69,7 @@
                          isn't already compiled into it silently does nothing. -->
                     <button id = "reset_btn" class="bg-[var(--profile-button-background-color)] border-2 border-[#c9c9c9] font-semibold rounded-[15px] text-[19.5px] w-[150px] h-[82.5px] px-[45px] py-[15px] flex items-center justify-center" data-i18n-key="RESET">RESET</button>
                     <button id='edit_profile' class="bg-[var(--profile-button-background-color)] border-2 border-[#c9c9c9] font-semibold rounded-[15px] text-[19.5px] w-[150px] h-[82.5px] px-[45px] py-[15px] flex items-center justify-center" data-i18n-key="EDIT">EDIT</button>
+                    <button id='share_profile' class="bg-[var(--profile-button-background-color)] border-2 border-[#c9c9c9] font-semibold rounded-[15px] text-[19.5px] w-[150px] h-[82.5px] px-[45px] py-[15px] flex items-center justify-center" data-i18n-key="SHARE">SHARE</button>
                 </div>
             </div>
             <div id="profile-chart-wrap" class="border-t profile-selector-bg border-b  p-4">
@@ -136,6 +137,26 @@
             <button id="login-modal-go-btn" class="flex-1 h-[60px] bg-[var(--mimoja-blue)] text-white text-[20px] font-bold rounded-[15px]">Go to Settings</button>
         </div>
         <button id="login-required-modal-close" class="btn btn-sm btn-circle btn-ghost absolute right-4 top-4 text-[var(--text-primary)]">✕</button>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<!-- Experiment: scan-to-download a profile. Only handles trimming `notes` on
+     overflow (usually the biggest field by far) -- a profile whose steps
+     alone don't fit shows qr-share-too-big instead. See src/modules/qrShare.js. -->
+<dialog id="qr-share-modal" class="modal">
+    <div class="modal-box bg-[var(--box-color)] max-w-[680px] rounded-[20px] p-8 flex flex-col items-center gap-4">
+        <h3 class="font-bold text-[26px] text-[var(--text-primary)]">Scan to Download</h3>
+        <!-- Canvas size is set by qrShare.js from the module count: a dense code
+             has to be drawn larger or a phone camera cannot resolve it. -->
+        <canvas id="qr-share-canvas" class="bg-white rounded-[8px]" style="image-rendering:pixelated;"></canvas>
+        <!-- Inline styles, not Tailwind: app.css is a pre-built stylesheet, so
+             arbitrary-value classes invented here would not exist in it. -->
+        <p id="qr-share-host" style="display:none; font-size:16px; color:var(--low-contrast-white); text-align:center; margin:0"></p>
+        <button id="qr-share-copy" type="button" style="display:none; font-size:18px; font-weight:700; color:var(--text-primary); background:transparent; border:1px solid var(--profile-button-outline-color); border-radius:999px; padding:8px 24px">Copy link</button>
+        <p id="qr-share-warning" class="text-[16px] text-amber-500 text-center" style="display:none">Notes were cut to fit the QR code.</p>
+        <p id="qr-share-too-big" class="text-[18px] text-red-500 text-center" style="display:none">This profile is too large to fit in a QR code, even without notes.</p>
+        <button id="qr-share-modal-close" class="btn btn-sm btn-circle btn-ghost absolute right-4 top-4 text-[var(--text-primary)]">✕</button>
     </div>
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
