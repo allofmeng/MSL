@@ -69,10 +69,14 @@ const { buildShareUrl, SHARE_BASE_URL } = await import('../src/modules/qrShare.j
 const realProfile = JSON.parse(
     readFileSync(new URL('../src/profiles/80s_Espresso.json', import.meta.url), 'utf8'));
 
-test('the link points at the page that decodes it', () => {
-    assert.equal(SHARE_BASE_URL.endsWith('/share.html'), true);
-    // The page has to exist where the link says it does: /docs on main is what
-    // GitHub Pages publishes.
+test('the link points at a page that decodes it', () => {
+    // https, because a scanner opening plain http gets a browser warning at
+    // best and a refusal at worst.
+    assert.match(SHARE_BASE_URL, /^https:\/\//);
+    // Ends at a directory or an .html file, so appending '#payload' produces a
+    // fragment rather than mangling a path.
+    assert.match(SHARE_BASE_URL, /(\/|\.html)$/);
+    // Whatever host it names, this is the file being served there.
     assert.ok(readFileSync(new URL('../docs/share.html', import.meta.url), 'utf8').length > 0);
 });
 

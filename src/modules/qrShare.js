@@ -22,9 +22,16 @@ import { logger } from './logger.js';
 // plain <script> global is visible to modules the same way ReconnectingWebSocket
 // and EasyMDE are used elsewhere in this codebase.
 
-// Receiver page. Must stay in step with where docs/share.html is published —
-// GitHub Pages serves it from /docs on main.
-export const SHARE_BASE_URL = 'https://allofmeng.github.io/MSL/share.html';
+// Receiver page. Serves docs/share.html — deployed to CapRover from
+// caprover-share/ (as index.html, hence the bare trailing slash), with the same
+// file also published on GitHub Pages at
+// https://allofmeng.github.io/MSL/share.html as a mirror.
+//
+// Self-hosted rather than on Pages because *.github.io is unreliable from
+// mainland China, and the sender cannot know where the scanner will be. Any
+// copy of the page decodes any link: the profile is in the fragment, so a host
+// change never invalidates a code that is already out there.
+export const SHARE_BASE_URL = 'https://qrshare.c48.cal.decentespresso.com/';
 
 // QR byte mode at LOW ecc tops out at 2953 bytes. qrcodegen raises the error
 // correction for free when the data leaves room, so LOW is a floor on quality,
