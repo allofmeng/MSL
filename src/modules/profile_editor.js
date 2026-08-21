@@ -74,6 +74,32 @@ let _baselineProfileJson = null;
 // `step.exit = null`, which is why the UI models it as an unticked row rather
 // than a third exit type.
 const EXIT_UNIT_MAP = { pressure: 'bar', flow: 'mL/s' };
+
+// A step whose exit is missing -- or carries a legacy type this editor cannot
+// write -- has no exit condition, so it reads as 'off'. The write boundary
+// already nulls a non-pressure/flow exit; without this the row showed one until
+// the next save, offering to edit a condition that was about to be discarded.
+// 'smooth' is the firmware's Interpolate frame flag: the setpoint ramps
+// linearly from the previous frame's value to this frame's target across the
+// WHOLE frame. 'fast' jumps to the target at the boundary and holds.
+//
+// The old version invented a ramp of 30% of the step capped at 3 s, and drew
+// it by omitting the frame's opening point -- leaning on the previous trace
+// point to slope up from. Step 1 has no previous point, so on the opening
+// step, where the ramp changes the extraction most, smooth and fast plotted
+// identically.
+function pushChannel(xArr, yArr, startT, endT, prevVal, target, transition) {
+    xArr.push(startT, endT);
+    yArr.push(transition === 'smooth' ? prevVal : target, target);
+}
+
+function readExitDef(step) {
+    const e = step.exit;
+    if (!e || (e.type !== 'pressure' && e.type !== 'flow')) {
+        return { on: false, type: 'pressure', condition: 'over', value: null };
+    }
+    return { on: true, type: e.type, condition: e.condition === 'under' ? 'under' : 'over', value: e.value ?? 0 };
+}
 const EXIT_STEP_MAP = { pressure: 0.1, flow: 0.1 };
 const EXIT_MAX_MAP  = { pressure: 12,  flow: 8 };
 
@@ -601,16 +627,17 @@ function summariseStep(step) {
     if (step.seconds > 0) parts.push(`${step.seconds} s`);
     if (step.weight > 0) parts.push(`${step.weight} g`);
     if (step.volume > 0) parts.push(`${step.volume} ml`);
-    if (step.exit) {
-        const dir = step.exit.condition === 'under' ? '<' : '>';
-        parts.push(`${t(step.exit.type === 'flow' ? 'Flow' : 'Pressure')} ${dir} ${roundTo(step.exit.value ?? 0, 0.1)} ${EXIT_UNIT_MAP[step.exit.type] || ''}`);
+    const summaryExit = readExitDef(step);
+    if (summaryExit.on) {
+        const dir = summaryExit.condition === 'under' ? '<' : '>';
+        parts.push(`${t(summaryExit.type === 'flow' ? 'Flow' : 'Pressure')} ${dir} ${roundTo(summaryExit.value, 0.1)} ${EXIT_UNIT_MAP[summaryExit.type]}`);
     }
     return parts.join(' · ');
 }
 
 /** True when nothing at all would end this step — worth saying out loud. */
 function stepHasNoEnd(step) {
-    return !(step.seconds > 0) && !(step.weight > 0) && !(step.volume > 0) && !step.exit;
+    return !(step.seconds > 0) && !(step.weight > 0) && !(step.volume > 0) && !readExitDef(step).on;
 }
 
 // ─── Render: step rail ──────────────────────────────────────────────────────
@@ -906,11 +933,12 @@ function renderStepEditor() {
     }));
 
     // Exit condition — pressure/flow crossing a threshold.
-    const exitOn = !!step.exit;
-    const exitType = step.exit?.type === 'flow' ? 'flow' : 'pressure';
-    const exitCond = step.exit?.condition === 'under' ? 'under' : 'over';
-    const exitValue = step.exit?.value ?? recallCond('exit');
-    rememberCond('exit', step.exit?.value ?? 0);
+    const exitDef = readExitDef(step);
+    const exitOn = exitDef.on;
+    const exitType = exitDef.type;
+    const exitCond = exitDef.condition;
+    const exitValue = exitDef.value ?? recallCond('exit');
+    rememberCond('exit', exitDef.value ?? 0);
     const exitLim = { min: 0, max: EXIT_MAX_MAP[exitType], step: EXIT_STEP_MAP[exitType] };
 
     endsControls.push(conditionRow({
@@ -998,24 +1026,6 @@ function buildPreviewFigure() {
     let prevPressure = 0;
     let prevFlow = 0;
     let selStart = null, selEnd = null;
-
-    // 'smooth' ramps from the channel's last value into the new target over
-    // part of the step instead of jumping there instantly like 'fast' does.
-    function rampDuration(dur) {
-        return Math.min(dur, Math.min(3, Math.max(0.5, dur * 0.3)));
-    }
-    function pushChannel(xArr, yArr, startT, endT, prevVal, target, transition) {
-        if (transition === 'smooth' && prevVal !== target) {
-            const rampEnd = startT + rampDuration(endT - startT);
-            if (rampEnd < endT) {
-                xArr.push(rampEnd, endT);
-                yArr.push(target, target);
-                return;
-            }
-        }
-        xArr.push(startT, endT);
-        yArr.push(target, target);
-    }
 
     (profile.steps || []).forEach((step, i) => {
         const dur = stepDuration(step);
