@@ -41,7 +41,11 @@ const QR_MODULE_PX = 8;
 // the old fixed 320px that was 2.0 per module, which is where scans fail.
 const QR_DISPLAY_PX_PER_MODULE = 4;
 const QR_DISPLAY_MIN = 320;
-const QR_DISPLAY_MAX = 620;   // fits the tablet's 800px-tall design canvas
+// The tablet's design canvas is 800px tall and the modal has to fit inside it
+// with its title and buttons, so this ceiling is set by the screen, not by what
+// a camera would prefer. At the densest profile (157 modules including the quiet
+// zone) it still leaves 3.3px per module.
+const QR_DISPLAY_MAX = 520;
 
 function renderQrToCanvas(qr, canvas) {
     const modules = qr.size + QR_QUIET_ZONE * 2;
@@ -115,12 +119,16 @@ export async function buildShareUrl(profile) {
     return short ? { url: short, notesDropped: true } : null;
 }
 
+// The link currently on screen, for the Copy button.
+let currentShareUrl = null;
+
 export async function showProfileQrModal(profile) {
     const modal = document.getElementById('qr-share-modal');
     const canvas = document.getElementById('qr-share-canvas');
     const warningEl = document.getElementById('qr-share-warning');
     const tooBigEl = document.getElementById('qr-share-too-big');
-    const urlEl = document.getElementById('qr-share-url');
+    const hostEl = document.getElementById('qr-share-host');
+    const copyBtn = document.getElementById('qr-share-copy');
     if (!modal || !canvas) {
         logger.error('QR share modal markup not found.');
         return;
@@ -135,10 +143,13 @@ export async function showProfileQrModal(profile) {
         logger.error('Could not build the share link:', e);
     }
 
+    currentShareUrl = result?.url ?? null;
+
     if (!result) {
         show(canvas, false);
         show(warningEl, false);
-        show(urlEl, false);
+        show(hostEl, false);
+        show(copyBtn, false);
         show(tooBigEl, true);
         modal.showModal();
         return;
@@ -147,13 +158,15 @@ export async function showProfileQrModal(profile) {
     show(canvas, true);
     show(tooBigEl, false);
     show(warningEl, result.notesDropped);
-    if (urlEl) {
-        // The link as text as well as in the code: a camera that will not focus,
-        // a scratched screen, or a scanner that mangles a long URL all leave the
-        // user something they can read out or copy.
-        urlEl.textContent = result.url;
-        show(urlEl, true);
+    // The full link runs 700-2000 characters, so printing it was useless: nobody
+    // reads that out, and it pushed the modal off the screen. Name the host so
+    // the scan is not a leap of faith, and put the link on the clipboard for
+    // sending through a chat app on this tablet instead of by camera.
+    if (hostEl) {
+        hostEl.textContent = new URL(result.url).host;
+        show(hostEl, true);
     }
+    show(copyBtn, true);
     try {
         // Throws if the vendored global is missing (a stale index.html) rather
         // than leaving an empty white square with no explanation.
@@ -165,10 +178,48 @@ export async function showProfileQrModal(profile) {
     modal.showModal();
 }
 
+// navigator.clipboard is gated on a secure context, and the skin is served over
+// plain http from Decaid on :3000 -- so on the tablet it is simply absent. The
+// execCommand path is the one that actually runs there.
+function copyToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+        return navigator.clipboard.writeText(text);
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.append(ta);
+    ta.select();
+    try {
+        if (!document.execCommand('copy')) throw new Error('copy rejected');
+        return Promise.resolve();
+    } catch (e) {
+        return Promise.reject(e);
+    } finally {
+        ta.remove();
+    }
+}
+
 export function initQrShareModal() {
     const closeBtn = document.getElementById('qr-share-modal-close');
     const modal = document.getElementById('qr-share-modal');
     if (closeBtn && modal) {
         closeBtn.addEventListener('click', () => modal.close());
+    }
+
+    const copyBtn = document.getElementById('qr-share-copy');
+    if (copyBtn) {
+        copyBtn.addEventListener('click', async () => {
+            if (!currentShareUrl) return;
+            const original = copyBtn.textContent;
+            try {
+                await copyToClipboard(currentShareUrl);
+                copyBtn.textContent = 'Copied';
+            } catch (e) {
+                logger.warn('Clipboard copy failed:', e);
+                copyBtn.textContent = 'Copy failed';
+            }
+            setTimeout(() => { copyBtn.textContent = original; }, 2000);
+        });
     }
 }
