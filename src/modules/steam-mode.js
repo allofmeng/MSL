@@ -14,8 +14,9 @@ export const STEAM_FLOW_PRESETS_BY_MODEL = {
 
 // Main-page Milk-mode stop-target presets (°C) — the temperature counterpart
 // of the Time presets (15/30/45/60 s). Applied via the same stopAtTemperature
-// path as every other milk-stop write, so values must sit inside the 30–85 °C
-// clamp shared by the tile's +/- buttons and the settings page.
+// path as every other milk-stop write, so values must sit inside the 30–80 °C
+// clamp shared by the tile's +/- buttons and the settings page (80 = the
+// documented API ceiling, rest_v1.yml SteamSettings.stopAtTemperature).
 export const MILK_STOP_PRESETS = [55, 60, 65, 70];
 
 /** Baseline steam-flow preset group for a machine-model string. */

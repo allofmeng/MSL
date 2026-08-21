@@ -758,7 +758,7 @@ function incrementSteam() {
     if (steamMode === 'time') {
         currentSteamDuration += 1;
     } else if (steamMode === 'temperature') {
-        if (currentMilkStop < 85) currentMilkStop = Math.min(85, currentMilkStop + displayStepToCelsius(1));
+        if (currentMilkStop < 80) currentMilkStop = Math.min(80, currentMilkStop + displayStepToCelsius(1));
     } else {
         if (currentSteamFlow < 2.5) {
             currentSteamFlow += 0.1;
@@ -1773,15 +1773,16 @@ export function initUI(callbacks) {
                 const currentValueC = fromDisplayTemp(parseFloat(valueEl.textContent));
                 const presetValue = milkStopPresets[index];
                 const defaultValue = DEFAULT_MILK_STOP_PRESETS[index];
-                // Milk-stop writes are clamped to 30–85 °C everywhere (tile
+                // Milk-stop writes are clamped to 30–80 °C everywhere (tile
                 // +/- and the settings page) — preset edits follow the same rule.
-                const clampMilkStop = (num) => Math.max(30, Math.min(85, Math.round(num)));
+                // 80 is the documented API ceiling (rest_v1.yml SteamSettings).
+                const clampMilkStop = (num) => Math.max(30, Math.min(80, Math.round(num)));
                 openContextMenu(button, [
                     { label: getTranslation('Apply {value}').replace('{value}', formatTemp(presetValue, 0)), onSelect: clickCallback },
                     { label: getTranslation('Enter value'), onSelect: () => {
                         openNumpadModal(makeNumpadMockInput(boundToDisplay(presetValue)), {
                             fieldType: 'milk-stop',
-                            config: { title: 'MILK STOP', unit: getTempUnit() === 'F' ? '°F' : '°c', defaultValue: '60', min: boundToDisplay(30), max: boundToDisplay(85) },
+                            config: { title: 'MILK STOP', unit: getTempUnit() === 'F' ? '°F' : '°c', defaultValue: '60', min: boundToDisplay(30), max: boundToDisplay(80) },
                             onConfirm: (newVal) => {
                                 const num = fromDisplayTemp(parseFloat(newVal));
                                 if (isNaN(num)) return;
