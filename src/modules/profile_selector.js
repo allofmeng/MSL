@@ -7,6 +7,7 @@ import { initChart, plotProfile } from './chart.js';
 import { translatePage, getTranslation } from './i18n.js';
 import { loadPage } from './router.js';
 import { openContextMenu, closeContextMenu } from './context-menu.js';
+import { showProfileQrModal, initQrShareModal } from './qrShare.js';
 
 // Visualizer credentials storage
 let cachedVisualizerCredentials = null;
@@ -324,6 +325,8 @@ function initModals() {
     if (loginRequiredModalClose) {
         loginRequiredModalClose.addEventListener('click', closeLoginRequiredModal);
     }
+
+    initQrShareModal();
 }
 
 let selectedProfileKey = null;
@@ -608,6 +611,12 @@ function showProfileContextMenu(key, profileRecord, anchorEl) {
                 window.__pendingEditProfile = profileRecord;
                 loadPage('src/profiles/profile_editor.html');
             },
+        },
+        {
+            // Experiment: render the profile JSON as a QR code so it can be
+            // scanned and imported without a network round-trip. See qrShare.js.
+            label: getTranslation('Share via QR'),
+            onSelect: () => showProfileQrModal(profileRecord.profile),
         },
     ];
 

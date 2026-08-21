@@ -139,6 +139,20 @@
     </div>
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
+
+<!-- Experiment: scan-to-download a profile. Only handles trimming `notes` on
+     overflow (usually the biggest field by far) -- a profile whose steps
+     alone don't fit shows qr-share-too-big instead. See src/modules/qrShare.js. -->
+<dialog id="qr-share-modal" class="modal">
+    <div class="modal-box bg-[var(--box-color)] max-w-[450px] rounded-[20px] p-8 flex flex-col items-center gap-4">
+        <h3 class="font-bold text-[26px] text-[var(--text-primary)]">Scan to Download</h3>
+        <canvas id="qr-share-canvas" class="bg-white rounded-[8px]" style="image-rendering:pixelated; width:320px; height:320px;"></canvas>
+        <p id="qr-share-warning" class="text-[16px] text-amber-500 text-center" style="display:none">Notes were cut to fit the QR code.</p>
+        <p id="qr-share-too-big" class="text-[18px] text-red-500 text-center" style="display:none">This profile is too large to fit in a QR code, even without notes.</p>
+        <button id="qr-share-modal-close" class="btn btn-sm btn-circle btn-ghost absolute right-4 top-4 text-[var(--text-primary)]">✕</button>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
 </div>
 <input type="file" id="profile-upload-input" class="hidden" accept=".json" />
 <script src="src/modules/profile_selector.js" type="module" defer></script>
