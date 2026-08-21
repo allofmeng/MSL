@@ -1,0 +1,4 @@
+.DS_Store
+
+# Build artifact from caprover-share/deploy.sh
+caprover-share/deploy.tar
