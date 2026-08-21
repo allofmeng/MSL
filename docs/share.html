@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Shared espresso profile</title>
+<style>
+  :root {
+    --bg: #f4f4f5; --card: #ffffff; --text: #18181b; --muted: #6b7280;
+    --line: #e4e4e7; --accent: #385a92; --accent-text: #ffffff; --bad: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214; --card: #1c1c1f; --text: #f4f4f5; --muted: #a1a1aa;
+      --line: #2e2e33; --accent: #5b83c4; --accent-text: #0b0b0d; --bad: #f97066;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
+    background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px; margin-bottom: 16px;
+  }
+  h1 { font-size: 24px; margin: 0 0 4px; line-height: 1.25; overflow-wrap: anywhere; }
+  .by { color: var(--muted); font-size: 15px; margin: 0 0 14px; overflow-wrap: anywhere; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; padding: 0; list-style: none; }
+  .facts div { font-size: 15px; }
+  .facts dt { color: var(--muted); font-size: 13px; }
+  .facts dd { margin: 0; font-weight: 600; }
+  .notes { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font-size: 15px; margin: 14px 0 0; }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: 0; }
+  a.btn, button.btn {
+    display: block; width: 100%; padding: 15px 20px; border: 0; border-radius: 999px;
+    background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 700;
+    text-align: center; text-decoration: none; cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); margin-top: 10px; }
+  .hint { color: var(--muted); font-size: 14px; margin: 12px 2px 0; }
+  .bad { color: var(--bad); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div id="error" class="card" hidden><p id="error-text" class="bad" style="margin:0"></p></div>
+
+  <div id="profile" class="card" hidden>
+    <h1 id="title"></h1>
+    <p id="author" class="by"></p>
+    <dl id="facts" class="facts"></dl>
+    <p id="notes" class="notes" hidden></p>
+  </div>
+
+  <div id="steps-card" class="card" hidden>
+    <div class="scroll"><table>
+      <thead><tr><th>#</th><th>Step</th><th>Target</th><th>Temp</th><th>Time</th></tr></thead>
+      <tbody id="steps"></tbody>
+    </table></div>
+  </div>
+
+  <div id="actions" hidden>
+    <a id="download" class="btn" download>Download profile (.json)</a>
+    <button id="copy" class="btn ghost" type="button">Copy JSON</button>
+    <p class="hint">Import it in your skin: <strong>Profiles → upload</strong>. The file is decoded on this
+       page from the link itself — nothing was uploaded to a server.</p>
+  </div>
+</main>
+
+<script type="module">
+// The profile travels inside the QR code, in the URL fragment. A fragment is
+// never sent to the server, so this page is a pure decoder: static hosting, no
+// backend, no storage, nothing to leak.
+//
+// Payload = base64url( gzip( minified profile JSON ) ). Uncompressed base64url
+// JSON is also accepted, so a sender whose WebView lacks CompressionStream can
+// still produce a working link.
+
+function fromBase64Url(text) {
+    const b64 = text.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+}
+
+async function gunzip(bytes) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    try {
+        return await new Response(stream).text();
+    } catch {
+        // A truncated or corrupt gzip stream comes back as TypeError "Failed to
+        // fetch", which tells the reader nothing. Name the actual problem.
+        throw new Error('That link is damaged — it looks cut short. Scan the QR code again.');
+    }
+}
+
+// Gzip starts 1f 8b. Sniffing the magic beats try/catch: a decode failure on a
+// corrupt payload should report itself, not silently fall through to the other
+// branch and produce a second, more confusing error.
+export async function decodePayload(fragment) {
+    const bytes = fromBase64Url(fragment);
+    const gzipped = bytes[0] === 0x1f && bytes[1] === 0x8b;
+    if (gzipped && typeof DecompressionStream !== 'function') {
+        throw new Error('This browser cannot read compressed links. Try a newer browser.');
+    }
+    const text = gzipped ? await gunzip(bytes) : new TextDecoder().decode(bytes);
+    const parsed = JSON.parse(text);
+    // Accept both the bare profile and a full record ({ profile, metadata }),
+    // so whatever the sender had to hand round-trips.
+    const profile = parsed?.profile ?? parsed;
+    if (!profile || typeof profile !== 'object' || !Array.isArray(profile.steps)) {
+        throw new Error('That link does not contain an espresso profile.');
+    }
+    return profile;
+}
+
+const $ = (id) => document.getElementById(id);
+const num = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
+
+function fail(message) {
+    $('error-text').textContent = message;
+    $('error').hidden = false;
+}
+
+function fact(dl, label, value) {
+    if (value === null || value === undefined || value === '') return;
+    const wrap = document.createElement('div');
+    const dt = document.createElement('dt');
+    const dd = document.createElement('dd');
+    dt.textContent = label;
+    dd.textContent = value;
+    wrap.append(dt, dd);
+    dl.append(wrap);
+}
+
+function describeTarget(step) {
+    const pressure = num(step.pressure);
+    const flow = num(step.flow);
+    if (step.pump === 'flow') return flow === null ? '—' : `${flow} mL/s`;
+    return pressure === null ? '—' : `${pressure} bar`;
+}
+
+function render(profile) {
+    const title = String(profile.title || 'Untitled profile');
+    document.title = title;
+    $('title').textContent = title;
+    if (profile.author) $('author').textContent = `by ${profile.author}`;
+    else $('author').hidden = true;
+
+    const dl = $('facts');
+    const yieldG = num(profile.target_weight);
+    const volume = num(profile.target_volume);
+    fact(dl, 'Steps', profile.steps.length);
+    fact(dl, 'Yield', yieldG ? `${yieldG} g` : null);
+    fact(dl, 'Volume', volume ? `${volume} mL` : null);
+    fact(dl, 'Total time', `${profile.steps.reduce((s, st) => s + (num(st.seconds) || 0), 0)} s`);
+    fact(dl, 'Beverage', profile.beverage_type || null);
+
+    if (profile.notes) {
+        $('notes').textContent = profile.notes;
+        $('notes').hidden = false;
+    }
+    $('profile').hidden = false;
+
+    const body = $('steps');
+    profile.steps.forEach((step, i) => {
+        const tr = document.createElement('tr');
+        const cells = [
+            String(i + 1),
+            step.name || '—',
+            describeTarget(step),
+            num(step.temperature) === null ? '—' : `${num(step.temperature)} °C`,
+            num(step.seconds) === null ? '—' : `${num(step.seconds)} s`,
+        ];
+        for (const text of cells) {
+            const td = document.createElement('td');
+            td.textContent = text;
+            tr.append(td);
+        }
+        body.append(tr);
+    });
+    $('steps-card').hidden = false;
+
+    // Re-serialised from the parsed object, not from the decoded text: what the
+    // user downloads is then exactly what this page showed them.
+    const json = JSON.stringify(profile, null, 2);
+    const link = $('download');
+    link.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    link.download = `${title.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'profile'}.json`;
+
+    // Fallback for the browsers that ignore `download` on a blob (older iOS).
+    $('copy').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(json);
+            $('copy').textContent = 'Copied';
+        } catch {
+            $('copy').textContent = 'Copy failed — long-press the Download button instead';
+        }
+    });
+    $('actions').hidden = false;
+}
+
+const fragment = location.hash.slice(1).trim();
+if (!fragment) {
+    fail('This page needs a share link. Scan the QR code on the machine, or open the full link including the part after #.');
+} else {
+    decodePayload(fragment).then(render).catch((e) => {
+        fail(e instanceof SyntaxError ? 'That link is damaged — the profile could not be read.' : e.message);
+    });
+}
+</script>
+</body>
+</html>
