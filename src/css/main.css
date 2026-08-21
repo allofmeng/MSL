@@ -667,8 +667,8 @@ body {
    buttons had no width or height at all: each one shrank to its digit (20-26px
    wide) and took its height from the line box, giving five differently-sized
    ovals where round buttons were intended. Sized here instead, where the rule
-   cannot silently not exist. flex:0 0 auto so the row cannot squeeze them
-   either. */
+   cannot silently not exist, with a fixed flex basis so the row cannot squeeze
+   them either. */
 .fav-assign-btn {
   width: 68px;
   height: 68px;

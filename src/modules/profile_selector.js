@@ -613,8 +613,9 @@ function showProfileContextMenu(key, profileRecord, anchorEl) {
             },
         },
         {
-            // Experiment: render the profile JSON as a QR code so it can be
-            // scanned and imported without a network round-trip. See qrShare.js.
+            // Same action as the SHARE button in the right-hand pane; kept here
+            // because the long-press menu is where the other per-profile actions
+            // live. See qrShare.js for what the code actually carries.
             label: getTranslation('Share via QR'),
             onSelect: () => showProfileQrModal(profileRecord.profile),
         },
