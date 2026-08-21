@@ -16,6 +16,19 @@
 //
 // DOM-free on purpose so `node --test test/` can import it (see test/README.md).
 
+/**
+ * Did this stream error come from OUR cancel?
+ *
+ * The DELETE only requests cancellation; what ends the in-flight promise is the
+ * NDJSON stream's own 'error' event, which carries Decaid's exception name. The
+ * local firmwareCancelRequested flag misses the case where the cancel is
+ * confirmed by Decaid but the flag was already cleared (a retry, a re-render).
+ */
+export function isFirmwareCancellationError(error) {
+    const message = typeof error === 'string' ? error : error?.message;
+    return typeof message === 'string' && message.includes('FirmwareUpdateCancelledException');
+}
+
 /** Recognised stream phases, in the order they occur. */
 export const FIRMWARE_PHASES = ['erasing', 'uploading', 'done', 'error'];
 

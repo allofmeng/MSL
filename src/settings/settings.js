@@ -6,6 +6,8 @@ import { getTempUnit, setTempUnit, formatTemp, fromDisplayTemp, boundToDisplay }
 import { loadPage } from '../modules/router.js'; // Singular and correctly formatted import
 import { logger } from '../modules/logger.js';
 import { isBengleMachine, setMachineModel } from '../modules/machine.js';
+import { setScreensaverSuppressed, isMachineAsleep } from '../modules/screensaver-policy.js';
+import { isFirmwareCancellationError } from '../modules/firmware-progress.js';
 import { resolveSteamStopMode, applyMilkProbeGate } from '../modules/steam-mode.js';
 import { ledRgbToColor16, ledColor16ToHex8, ledHexToRgb, ledPreviewComposite } from '../modules/led-color.js';
 import { isCupWarmerOn, readCupWarmerTarget, clampCupWarmerTarget, clampPrewarmMinutes, resolvePrewarm, prewarmWarnings, prewarmShapeSignature, cupWarmerViewMode, formatCurrentMatTemp, getCupWarmerState, setCupWarmerState, patchCupWarmerState, onCupWarmerStateChange, CUP_WARMER_TARGET_KEY, PREWARM_MIN_MINUTES, PREWARM_MAX_MINUTES } from '../modules/cup-warmer.js';
@@ -6881,6 +6883,11 @@ export async function initializeSettings() {
         if (wakeLockWasOff) await enableWakeLock().catch(e => logger.warn('Wake-lock for firmware upload failed:', e));
         // Keep our MMR-backed settings reads off the BLE radio the flash owns.
         setFirmwareFlashInFlight(true);
+        // The flash sleeps the DE1 for the whole update, so the snapshot reports
+        // 'sleeping' and the screensaver + panel dim would bury the progress bar.
+        // Cleared in the finally, so the overlay is a pure function of machine
+        // state again the moment the update ends (fails and cancels included).
+        setScreensaverSuppressed(true);
 
         try {
             ui.showToast(`${getTranslation('Uploading...')} firmware — this may take several minutes`, 10000, 'info');
@@ -6896,7 +6903,7 @@ export async function initializeSettings() {
             // A cancel resolves through this same stream-error path (the DELETE
             // just requests it; the NDJSON stream's 'error' event is what
             // actually ends the in-flight promise) -- read as "cancelled", not "failed".
-            const cancelled = firmwareCancelRequested;
+            const cancelled = firmwareCancelRequested || isFirmwareCancellationError(error);
             if (label) {
                 label.textContent = cancelled ? getTranslation('Update cancelled') : `${getTranslation('Firmware update failed')}: ${error.message}`;
                 label.classList.add('text-[#da515e]');
@@ -6915,6 +6922,12 @@ export async function initializeSettings() {
             firmwareUploadInFlight = false;
             firmwareCancelRequested = false;
             setFirmwareFlashInFlight(false);
+            setScreensaverSuppressed(false);
+            // The dim we suppressed was the idle->sleeping TRANSITION, and the
+            // machine is normally still asleep here -- no second transition is
+            // coming, so nothing would ever re-dim. Catch up by hand. (The
+            // overlay needs no such nudge: it is re-derived every snapshot.)
+            if (isMachineAsleep(currentMachineState)) dimDisplay();
             window.removeEventListener('beforeunload', blockUnload);
             if (wakeLockWasOff) await disableWakeLock().catch(() => {});
             const cancelBtnEl = document.getElementById('firmware-cancel-btn');
@@ -6932,6 +6945,10 @@ export async function initializeSettings() {
         try {
             await cancelFirmwareUpdate();
         } catch (error) {
+            // The cancel never reached Decaid, so the update is still running:
+            // put the button back rather than leaving a dead "Cancelling…".
+            firmwareCancelRequested = false;
+            if (btn) { btn.disabled = false; btn.textContent = getTranslation('Cancel'); }
             logger.error('Failed to cancel firmware update:', error);
             ui.showToast(`Failed to cancel: ${error.message}`, 4000, 'error');
         }

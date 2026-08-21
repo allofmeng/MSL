@@ -5,6 +5,7 @@ import {
     normalizeFirmwareEvent,
     advanceFirmwareState,
     initialFirmwareState,
+    isFirmwareCancellationError,
 } from '../src/modules/firmware-progress.js';
 
 /** Feed a stream of decoded chunks through framing + folding, as api.js does. */
@@ -74,4 +75,14 @@ test('percent holds through the silent verification phase', () => {
 test('unrecognised events leave the state untouched', () => {
     const before = { phase: 'uploading', percent: 42, error: null };
     assert.deepEqual(advanceFirmwareState(before, { hello: 'world' }), before);
+});
+
+test('a cancel Decaid confirms is told apart from a real failure', () => {
+    // The stream's error event is what ends the upload promise either way; only
+    // the message says which happened.
+    assert.equal(isFirmwareCancellationError(
+        new Error('Stream failed: FirmwareUpdateCancelledException: cancelled by user')), true);
+    assert.equal(isFirmwareCancellationError('FirmwareUpdateCancelledException'), true);
+    assert.equal(isFirmwareCancellationError(new Error('BLE write timed out')), false);
+    assert.equal(isFirmwareCancellationError(undefined), false);
 });

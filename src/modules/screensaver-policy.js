@@ -31,6 +31,28 @@ export function isMachineAsleep(machineState) {
     return String(machineState || '').toLowerCase() === SLEEPING;
 }
 
+// ── Suppression while the machine is busy on our behalf ──────────────────────
+//
+// A firmware flash puts the DE1 to sleep for the minutes it takes, so the
+// snapshot honestly reports 'sleeping' -- and the overlay goes up (and the panel
+// dims) over the progress bar the user is watching. The state is real, so the
+// "confirmed state only" rule cannot fix this; what is wrong is that a sleep WE
+// caused for a foreground operation is not an idle machine.
+//
+// One module-global boolean: the firmware endpoint 409s a second concurrent
+// update, so there is never more than one thing suppressing.
+let suppressed = false;
+
+/** Suppress the screensaver + panel dim for the duration of a foreground op. */
+export function setScreensaverSuppressed(value) {
+    suppressed = !!value;
+}
+
+/** Is the screensaver currently suppressed? */
+export function isScreensaverSuppressed() {
+    return suppressed;
+}
+
 /**
  * How long a wake WE asked for may go unconfirmed before we stop believing in it.
  *
