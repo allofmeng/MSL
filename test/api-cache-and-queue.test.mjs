@@ -23,7 +23,7 @@ test('a settings write expires its read cache', async () => {
         return { ok: true, json: async () => ({ value: state.get(url) ?? 'old' }) };
     };
     const api = new Function(
-        'fetch', 'logger', 'API_BASE_URL', 'AbortController', 'setTimeout', 'clearTimeout',
+        'fetch', 'logger', 'API_BASE_URL', 'AbortController', 'setTimeout', 'clearTimeout', 'firmwareFlashInFlight',
         [
             pick(/(?:const|let) reatsettingscache = \{[\s\S]*?\r?\n\};/),
             pick(/(?:const|let) de1SettingsCache = \{[\s\S]*?\r?\n\};/),
@@ -36,7 +36,7 @@ test('a settings write expires its read cache', async () => {
             pick(/export async function setDe1AdvancedSettings\(settings\) \{[\s\S]*?\r?\n\}/),
             'return { getReaSettings, setReaSettings, getDe1Settings, setDe1Settings, getDe1AdvancedSettings, setDe1AdvancedSettings };',
         ].join('\n'),
-    )(fetch, { info() {}, error() {}, warn() {} }, 'http://decaid/api/v1', AbortController, setTimeout, clearTimeout);
+    )(fetch, { info() {}, error() {}, warn() {} }, 'http://decaid/api/v1', AbortController, setTimeout, clearTimeout, false);
 
     for (const [get, set] of [
         [api.getReaSettings, api.setReaSettings],

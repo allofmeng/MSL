@@ -68,6 +68,21 @@ let currentShotSettings = {
     groupTemp: 0.0, // number (float/double)
 };
 
+// A firmware flash owns the DE1's BLE radio for 10+ minutes of unpaced 16-byte
+// writes. GET /machine/settings is nine MMR reads, and MMR is gated behind the
+// firmware, so each one sits in the BLE queue until the flash ends. A settings
+// refresh nobody asked for is not worth putting in that queue.
+//
+// Serving the cache is enough because a flash cannot change these values, and
+// only a REFRESH is skipped: with no cache at all the fetch still runs, so a
+// first read is never broken by this.
+let firmwareFlashInFlight = false;
+
+/** Hold MMR-backed reads while the DE1 is being flashed. */
+export function setFirmwareFlashInFlight(value) {
+    firmwareFlashInFlight = !!value;
+}
+
 // Caching for DE1 settings to avoid multiple API calls
 const de1SettingsCache = {
     data: null,
@@ -103,12 +118,39 @@ export async function getDevices() {
     return response.json();
 }
 
-export async function scanForDevices() {
-    const response = await fetch(`${API_BASE_URL}/devices/scan`);
-    if (!response.ok) {
-        throw new Error('Failed to scan for devices');
+// How long to hold a caller on a scan before answering from the device list
+// instead. A scan window is ~15 s, and the connect attempt that follows is what
+// stretched one call past 40 s in Decaid's log. 20 s clears a normal scan, so the
+// usual path still returns the real post-scan list.
+const SCAN_RESPONSE_BUDGET_MS = 20000;
+
+/**
+ * Ask Decaid to scan (and connect). Bounded: the endpoint takes its slow branch
+ * for us -- `quick` defaults false and `connect` defaults TRUE
+ * (devices_handler.dart) -- so it holds the response open for the whole scan AND
+ * the connect that follows.
+ *
+ * Aborting drops only OUR read: the handler awaits a plain future, so the scan
+ * and connect carry on server-side and land on the devices socket either way.
+ * What a timeout costs is the freshness of the returned list, so fall back to
+ * the device list as it stands -- which the scan has been updating all along.
+ */
+export async function scanForDevices({ timeoutMs = SCAN_RESPONSE_BUDGET_MS } = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(`${API_BASE_URL}/devices/scan`, { signal: controller.signal });
+        if (!response.ok) {
+            throw new Error('Failed to scan for devices');
+        }
+        return await response.json();
+    } catch (error) {
+        if (error.name !== 'AbortError') throw error;
+        logger.warn(`Device scan still open after ${timeoutMs} ms — answering from the device list; the scan continues in Decaid.`);
+        return getDevices();
+    } finally {
+        clearTimeout(timer);
     }
-    return response.json();
 }
 
 export async function reconnectDevice(deviceId) {
@@ -1408,6 +1450,9 @@ export async function getAppInfo() {
 
 
 export async function getDe1Settings() {
+    // Mid-flash: nine MMR reads down a radio the firmware owns. Serve what we have.
+    if (firmwareFlashInFlight && de1SettingsCache.data) return de1SettingsCache.data;
+
     // Check if we have cached data that is still fresh
     if (de1SettingsCache.data && de1SettingsCache.timestamp) {
         const now = Date.now();
@@ -1475,6 +1520,9 @@ export async function setDe1Settings(settings) {
 }
 
 export async function getDe1AdvancedSettings() {
+    // Same reasoning as getDe1Settings: no MMR traffic while the flash runs.
+    if (firmwareFlashInFlight && de1AdvancedSettingsCache.data) return de1AdvancedSettingsCache.data;
+
     // Check if we have cached data that is still fresh
     if (de1AdvancedSettingsCache.data && de1AdvancedSettingsCache.timestamp) {
         const now = Date.now();

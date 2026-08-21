@@ -1,4 +1,4 @@
-import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, cancelFirmwareUpdate, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, connectScaleWebSocket } from '../modules/api.js';
+import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, cancelFirmwareUpdate, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, connectScaleWebSocket, setFirmwareFlashInFlight } from '../modules/api.js';
 import * as ui from '../modules/ui.js';
 import { initScaling } from '../modules/scaling.js';
 import { getSupportedLanguages, getCurrentLanguage, setLanguage, translatePage, getTranslation, fitTextToWidth } from '../modules/i18n.js';
@@ -6879,6 +6879,8 @@ export async function initializeSettings() {
         // Only touched when it was off, and put back the way it was found.
         const wakeLockWasOff = !isWakeLockEnabled();
         if (wakeLockWasOff) await enableWakeLock().catch(e => logger.warn('Wake-lock for firmware upload failed:', e));
+        // Keep our MMR-backed settings reads off the BLE radio the flash owns.
+        setFirmwareFlashInFlight(true);
 
         try {
             ui.showToast(`${getTranslation('Uploading...')} firmware — this may take several minutes`, 10000, 'info');
@@ -6912,6 +6914,7 @@ export async function initializeSettings() {
         } finally {
             firmwareUploadInFlight = false;
             firmwareCancelRequested = false;
+            setFirmwareFlashInFlight(false);
             window.removeEventListener('beforeunload', blockUnload);
             if (wakeLockWasOff) await disableWakeLock().catch(() => {});
             const cancelBtnEl = document.getElementById('firmware-cancel-btn');
@@ -8248,62 +8251,11 @@ export function renderBluetoothScaleSettings(settings) {
     `;
 }
 
-// Function to render all available devices with individual connection controls
-async function renderAllDevices() {
-    try {
-     
-
-        // Get all available devices
-        // const devices = await getDevices();
-            const devices = await scanForDevices();
-        // Separate devices into machines and scales
-        const machines = devices.filter(device => 
-            device.name && (device.name.toLowerCase().includes('decent') || 
-                           device.name.toLowerCase().includes('espresso') || 
-                           device.type === 'espresso')
-        );
-        
-        const scales = devices.filter(device => 
-            device.name && (device.name.toLowerCase().includes('scale') || 
-                           device.name.toLowerCase().includes('weight') || 
-                           device.type === 'scale')
-        );
-
-        // Render devices in their respective containers
-        renderDeviceList('bluetooth-machine-devices-container', machines, 'Machine');
-        renderDeviceList('bluetooth-scale-devices-container', scales, 'Scale');
-        
-        // Also render to the general container if we're on the main bluetooth page
-        const generalContainer = document.getElementById('bluetooth-devices-container');
-        if (generalContainer) {
-            if (machines.length > 0 || scales.length > 0) {
-                let allDevicesHTML = '';
-                if (machines.length > 0) {
-                    allDevicesHTML += '<div class="mb-8">';
-                    allDevicesHTML += '<h3 class="text-[30px] text-[var(--text-primary)] mb-4" data-i18n-key="Espresso Machines">Espresso Machines</h3>';
-                    allDevicesHTML += renderSingleDeviceList(machines);
-                    allDevicesHTML += '</div>';
-                }
-                
-                if (scales.length > 0) {
-                    allDevicesHTML += '<div class="mb-8">';
-                    allDevicesHTML += '<h3 class="text-[30px] text-[var(--text-primary)] mb-4" data-i18n-key="Weighing Scales">Weighing Scales</h3>';
-                    allDevicesHTML += renderSingleDeviceList(scales);
-                    allDevicesHTML += '</div>';
-                }
-                
-                generalContainer.innerHTML = allDevicesHTML;
-            } else {
-                generalContainer.innerHTML = '<p class="text-[24px] text-[var(--text-primary)]" data-i18n-key="No Bluetooth devices found. Make sure your devices are powered on and in pairing mode.">No Bluetooth devices found. Make sure your devices are powered on and in pairing mode.</p>';
-            }
-        }
-
-        // statusDiv.innerHTML = `<p>Found ${devices.length} device(s). ${machines.length} machine(s), ${scales.length} scale(s).</p>`;
-    } catch (error) {
-        console.error('Error scanning for devices:', error);
-  
-    }
-}
+// renderAllDevices lived here. It called a scanForDevices this module never
+// imported, so every call threw straight into its own catch and painted nothing,
+// ever. Its only entry points were window.refreshBluetoothDevices (no callers)
+// and a load-time setTimeout, both removed with it. The cache painter that does
+// render these containers passes a preferred-device selection this never had.
 
 // Helper function to render a list of devices of a specific type
 function renderDeviceList(containerId, devices, type, preferredId = '', settingKey = '') {
@@ -8691,18 +8643,3 @@ window.handleNightModeTimeChange = async function(type, timeStr) {
         await updateReaSetting('nightModeMorningTime', minutes);
     }
 };
-
-// Initialize Bluetooth settings when the page loads
-document.addEventListener('DOMContentLoaded', function() {
-    // Set up a global function to refresh the device list
-    window.refreshBluetoothDevices = renderAllDevices;
-});
-
-// Call the render function when the module functions are accessed
-setTimeout(() => {
-    if (document.getElementById('bluetooth-devices-container') ||
-        document.getElementById('bluetooth-machine-devices-container') ||
-        document.getElementById('bluetooth-scale-devices-container')) {
-        renderAllDevices();
-    }
-}, 100);
