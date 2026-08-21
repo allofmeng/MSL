@@ -1583,6 +1583,27 @@ export async function initializeProfileSelector() {
         console.warn('[EditBtn] #edit_profile button not found in DOM');
     }
 
+    // Wire share button — the same action as the long-press menu's "Share via
+    // QR", surfaced where people look for it. Cloned before wiring like the
+    // buttons below: initProfileSelector runs again on every visit to the page.
+    const shareBtnRaw = document.getElementById('share_profile');
+    const shareBtn = shareBtnRaw ? (() => {
+        const clone = shareBtnRaw.cloneNode(true);
+        shareBtnRaw.parentNode.replaceChild(clone, shareBtnRaw);
+        return clone;
+    })() : null;
+    if (shareBtn) {
+        shareBtn.addEventListener('click', () => {
+            if (!selectedProfileKey) {
+                showToast(getTranslation('Select a profile first'), 3000, 'error');
+                return;
+            }
+            const profileRecord = availableProfiles[selectedProfileKey];
+            if (!profileRecord?.profile) return;
+            showProfileQrModal(profileRecord.profile);
+        });
+    }
+
     // Wire reset button
     const resetBtnRaw = document.getElementById('reset_btn');
     const resetBtn = resetBtnRaw ? (() => {

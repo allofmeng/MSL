@@ -561,7 +561,8 @@ body {
    already compiled into it produces no rule at all. */
 #selected_profile_name,
 #reset_btn,
-#edit_profile {
+#edit_profile,
+#share_profile {
   color: var(--accent-text);
 }
 
@@ -659,3 +660,17 @@ body {
   color: var(--low-contrast-white);
 }
 .settings-nav-group:first-child { padding-top: 6px; }
+
+/* Assign-to-favourite 1..5, under the profile list.
+   These were sized with w-[68px] h-[68px]. app.css is a pre-built Tailwind
+   bundle and those two arbitrary values were never compiled into it, so the
+   buttons had no width or height at all: each one shrank to its digit (20-26px
+   wide) and took its height from the line box, giving five differently-sized
+   ovals where round buttons were intended. Sized here instead, where the rule
+   cannot silently not exist. flex:0 0 auto so the row cannot squeeze them
+   either. */
+.fav-assign-btn {
+  width: 68px;
+  height: 68px;
+  flex: 0 0 68px;
+}
