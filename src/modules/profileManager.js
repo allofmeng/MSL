@@ -5,6 +5,8 @@ import { openContextMenu } from './context-menu.js';
 import { openDB, getSetting, setSetting } from './idb.js';
 import { loadPage } from './router.js'; // Singular and correctly formatted import
 import { getTranslation } from './i18n.js';
+import { resolveProfileKeyByTitle } from './active-profile.js';
+import { loadProfileOverrides, saveProfileOverride, clearProfileOverride, applyOverridesToRecords } from './profile-overrides.js';
 
 /**
  * Rename a profile by ID
@@ -181,6 +183,11 @@ export async function loadAvailableProfiles() {
 
         logger.info(`Successfully loaded ${Object.keys(availableProfiles).length} profiles from API.`);
 
+        // The user's tile edits live in KV, not on the record — fold them on so
+        // every `record.metadata.targetDoseWeight` read below sees them.
+        await loadProfileOverrides();
+        applyOverridesToRecords(availableProfiles);
+
         // Sync to IndexedDB as a fallback
         await setSetting(PROFILES_CACHE_KEY, availableProfiles);
         logger.info('Successfully synced profiles to IndexedDB cache.');
@@ -194,6 +201,8 @@ export async function loadAvailableProfiles() {
             const profilesFromCache = await getSetting(PROFILES_CACHE_KEY);
             if (profilesFromCache && Object.keys(profilesFromCache).length > 0) {
                 availableProfiles = profilesFromCache;
+                await loadProfileOverrides();
+                applyOverridesToRecords(availableProfiles);
                 logger.info(`Successfully loaded ${Object.keys(availableProfiles).length} profiles from IndexedDB cache.`);
                 return { profilesFrom: 'IDB_CACHE' };
             } else {
@@ -330,6 +339,28 @@ export function setActiveProfile(profileId) {
     activeProfileId = profileId;
 }
 
+// Bind activeProfileId to the profile the machine has loaded, by title.
+//
+// Tile edits are saved onto the active record's metadata, and until this
+// existed the id was only ever set by tapping a favourite / picking in the
+// selector, plus a boot-time match that scanned ONLY the five favourite slots.
+// So after a reload with a profile that is not on a favourite button, every
+// dose/yield/grind/temp edit was written to the workflow and then dropped on
+// the floor -- and the next profile switch showed the profile's own numbers
+// again. Called on every loadInitialData, which is also the path a profile
+// switch made elsewhere goes through.
+export function syncActiveProfileFromTitle(title) {
+    const key = resolveProfileKeyByTitle(availableProfiles, title, translateProfileTitle);
+    if (key) {
+        activeProfileId = key;
+        logger.info(`Active profile bound to ${key} ("${title}")`);
+    } else {
+        activeProfileId = null;
+        logger.warn(`No stored profile matches loaded profile "${title}" — tile edits will not persist.`);
+    }
+    return key;
+}
+
 export function getActiveProfileRecord() {
     if (!activeProfileId || !availableProfiles[activeProfileId]) return null;
     return availableProfiles[activeProfileId];
@@ -351,10 +382,10 @@ export function getActiveProfileKey(displayedTitle = null) {
     return hit ? hit[0] : null;
 }
 
-// Serialize metadata read-modify-write so concurrent edits and resets can't
-// clobber each other. Without this, two writers read the same base metadata and
-// the last PUT to resolve wins — silently dropping the other's user-entered
-// values. Each task re-reads metadata inside the chain, after the prior write.
+// Serialize override read-modify-write so concurrent edits and resets can't
+// clobber each other. Without this, two writers read the same base values and
+// the last write to resolve wins — silently dropping the other's user-entered
+// numbers. Each task re-reads the overrides inside the chain, after the prior write.
 // ponytail: single global chain; fine because all writes target the one active
 // profile. Per-id queues only if multiple profiles ever mutate concurrently.
 let metadataWriteChain = Promise.resolve();
@@ -364,28 +395,59 @@ function queueMetadataWrite(task) {
     return run;
 }
 
-// Apply a metadata change for `profileId`, transforming the *current* metadata
-// (read fresh inside the queue) and PUTting the result. `transform` receives the
-// latest metadata object and returns the new one.
-function mutateProfileMetadata(profileId, transform) {
+// Write an override for `profileId` to KV, then fold it onto the cached record
+// so the metadata reads elsewhere (and the IDB fallback cache) agree with it.
+function mutateProfileOverrides(profileId, fields) {
     return queueMetadataWrite(async () => {
+        const merged = await saveProfileOverride(profileId, fields);
         const record = availableProfiles[profileId];
         if (!record) return null;
-        const newMetadata = transform(record.metadata || {});
-        const updatedRecord = await updateProfileMetadata(profileId, newMetadata);
-        availableProfiles[profileId] = updatedRecord;
+        record.metadata = { ...(record.metadata || {}), ...merged };
         await setSetting(PROFILES_CACHE_KEY, availableProfiles);
-        return updatedRecord;
+        return record;
+    });
+}
+
+// Drop every saved override for `profileId`: KV first, then the cached record.
+// Numbers written by an older build still sit in the profile's server-side
+// metadata, so strip those too or the reset comes back on the next reload.
+const OVERRIDE_METADATA_KEYS = ['targetDoseWeight', 'targetYield', 'grinderSetting'];
+function dropProfileOverrides(profileId) {
+    return queueMetadataWrite(async () => {
+        await clearProfileOverride(profileId);
+        const record = availableProfiles[profileId];
+        if (!record) return null;
+        const meta = record.metadata || {};
+        const { targetDoseWeight, targetYield, grinderSetting, ...rest } = meta;
+        record.metadata = rest;
+        if (OVERRIDE_METADATA_KEYS.some(key => key in meta)) {
+            try {
+                availableProfiles[profileId] = await updateProfileMetadata(profileId, rest);
+            } catch (e) {
+                logger.warn(`Failed to strip legacy metadata overrides for ${profileId}:`, e);
+            }
+        }
+        await setSetting(PROFILES_CACHE_KEY, availableProfiles);
+        return availableProfiles[profileId];
     });
 }
 
 export async function saveContextToActiveProfile(fields) {
-    if (!activeProfileId || !availableProfiles[activeProfileId]) return;
+    // Last-ditch bind: the machine's profile is on screen even when nothing has
+    // set the id this session. Better than dropping the user's number.
+    if (!activeProfileId || !availableProfiles[activeProfileId]) {
+        syncActiveProfileFromTitle(document.getElementById('profile-name')?.textContent);
+    }
+    if (!activeProfileId || !availableProfiles[activeProfileId]) {
+        logger.warn('No active profile — tile edit not persisted:', fields);
+        return;
+    }
     const profileId = activeProfileId; // pin target across the async queue wait
     try {
-        // Metadata-only PUT — the profile (execution) hash is untouched, so the
-        // id stays stable; no favorite remap needed.
-        await mutateProfileMetadata(profileId, (meta) => ({ ...meta, ...fields }));
+        // Straight to KV, keyed by profile id: Decaid replaces a bundled
+        // profile's metadata map wholesale when it re-seeds it, and used to take
+        // the user's numbers with it.
+        await mutateProfileOverrides(profileId, fields);
         logger.info(`Saved context to profile ${profileId}:`, fields);
     } catch (error) {
         logger.error('Failed to save context to profile:', error);
@@ -401,10 +463,10 @@ export async function resetActiveProfileToDefaults() {
     if (!profile) return false;
 
     // Drop override keys, going through the same write queue as edits so a
-    // reset and an in-flight edit can't clobber each other. Strip is computed
-    // against the freshest metadata (spread-merge can't delete, so rebuild).
+    // reset and an in-flight edit can't clobber each other. Clears the KV entry
+    // and the legacy metadata copy — see dropProfileOverrides.
     try {
-        await mutateProfileMetadata(profileId, ({ targetDoseWeight, targetYield, grinderSetting, ...rest }) => rest);
+        await dropProfileOverrides(profileId);
     } catch (error) {
         logger.error('Failed to clear profile overrides:', error);
         return false;
@@ -1070,10 +1132,7 @@ const FALLBACK_PROFILE_TITLES = [
 ];
 
 function findProfileKeyByTitle(title) {
-    const lower = title.toLowerCase();
-    return Object.keys(availableProfiles).find(
-        k => availableProfiles[k]?.profile?.title?.toLowerCase() === lower
-    ) || null;
+    return resolveProfileKeyByTitle(availableProfiles, title, translateProfileTitle);
 }
 
 async function autoPopulateFavoritesFromHistory() {

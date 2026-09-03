@@ -5,6 +5,14 @@
 // inverse scale transform so CodeMirror cursor math stays correct, while
 // the header/buttons remain in the normal flex flow (never pushed off-screen).
 
+import { loadEasyMDE, loadStyle } from './vendor-loader.js';
+
+// This module is only ever reached through the router's sub-page imports, so
+// its stylesheet no longer needs to be in index.html's <head> blocking the
+// dashboard's first paint. Kicked off at import time — long before the user can
+// tap "Notes" — rather than at open, so the modal is never briefly unstyled.
+loadStyle('src/css/notes-modal.css').catch(() => {});
+
 let overlayEl = null;
 let editorWrapEl = null;   // flex slot (position: relative)
 let editorScaledEl = null; // absolutely-positioned, inverse-scaled inner div
@@ -157,11 +165,17 @@ function applyInverseScale() {
     }
 }
 
-function initEasyMDE() {
+// EasyMDE (320 KB + its stylesheet) is fetched the first time the notes modal is
+// actually opened, not at boot -- see vendor-loader.js.
+async function initEasyMDE() {
     if (easyMDE) return;
 
     const textarea = document.getElementById('notes-modal-textarea');
     if (!textarea) return;
+
+    const EasyMDE = await loadEasyMDE();
+    // Another open may have raced us in while the script was downloading.
+    if (easyMDE) return;
 
     easyMDE = new EasyMDE({
         element: textarea,
@@ -220,8 +234,14 @@ export function openNotesModal(currentText, onConfirm, options = {}) {
     // then compute inverse scale and init EasyMDE
     requestAnimationFrame(() => {
         applyInverseScale();
-        setTimeout(() => {
-            initEasyMDE();
+        setTimeout(async () => {
+            try {
+                await initEasyMDE();
+            } catch (e) {
+                console.error('[notes-modal] Could not load the editor:', e);
+                return;
+            }
+            if (!easyMDE) return;
             easyMDE.value(currentText || '');
             easyMDE.codemirror.refresh();
             easyMDE.codemirror.focus();

@@ -12,6 +12,14 @@
 // are English-only; wire into i18n.js if/when the app needs translated help.
 
 import { setupPressAndHold } from './ui.js';
+import { loadStyle } from './vendor-loader.js';
+
+// Own stylesheet, injected instead of blocking index.html's first paint. It is
+// appended to <head> after main.css, which keeps the main-page override main.css
+// documents (help-overlay.css deliberately outranks it) working. This module is
+// a deferred type="module" script, so the request still starts before init()
+// runs and paints the button.
+loadStyle('src/css/help-overlay.css').catch(() => {});
 
 // Mirrors isInWebView() in ui.js / app.js — kept local so this module stays
 // dependency-light and copy-able.

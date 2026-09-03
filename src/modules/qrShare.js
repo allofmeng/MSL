@@ -1,4 +1,5 @@
 import { logger } from './logger.js';
+import { loadQrCodeGen } from './vendor-loader.js';
 
 // Share a profile as a QR code.
 //
@@ -175,8 +176,10 @@ export async function showProfileQrModal(profile) {
     }
     show(copyBtn, true);
     try {
-        // Throws if the vendored global is missing (a stale index.html) rather
-        // than leaving an empty white square with no explanation.
+        // Fetched on the first share rather than at boot (vendor-loader.js).
+        // Throws if it cannot be loaded, rather than leaving an empty white
+        // square with no explanation.
+        const qrcodegen = await loadQrCodeGen();
         renderQrToCanvas(qrcodegen.QrCode.encodeText(result.url, qrcodegen.QrCode.Ecc.LOW), canvas);
     } catch (e) {
         logger.error('Could not draw the QR code:', e);

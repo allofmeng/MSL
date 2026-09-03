@@ -21,6 +21,7 @@ import { initNumpadModal, attachToNumericInputs, openModal, shouldUseNumpad } fr
 import { initTimePicker } from './time-picker-modal.js';
 import { openDB, setSetting } from './idb.js';
 import { openContextMenu } from './context-menu.js';
+import { loadStyle } from './vendor-loader.js';
 
 window.app = { api, ui, chart };
 
@@ -110,15 +111,18 @@ function initMobileValueInputs() {
                             window.app.ui.updateTemperatureValue(tempC);
                         } else if (type === 'steam-duration') {
                             // The numpad blanks a bare "0" to '' — treat empty/NaN as 0.
-                            // 0 = steam heater off: the middleware gates steamEnabled on
-                            // duration > 0, so sending 0 sets targetSteamTemp 0 and the
-                            // firmware disables the steam heater (temporary, reversible).
+                            // 0 = steam off. Duration alone does NOT touch the heater
+                            // (rest_v1.yml: SteamSettings.duration "does not control
+                            // steam-heater preheating") — api.setTargetSteamDuration
+                            // sends targetTemperature 0 alongside it, and restores the
+                            // remembered temperature when steam is re-armed.
                             const v = (newVal === '' || isNaN(parseFloat(newVal))) ? 0 : parseFloat(newVal);
                             window.app.ui.updateSteamDisplay({ targetSteamDuration: v });
                             window.app.api.setTargetSteamDuration(v).catch(e => logger.error('setTargetSteamDuration failed:', e));
                         } else if (type === 'steam-flow') {
                             // Numpad blanks a bare "0" to ''. Unlike duration, 0 steam
-                            // flow has no meaning (steam is gated on duration, not flow),
+                            // flow has no meaning (the heater is gated on temperature and
+                            // the tile's off switch is duration, neither of them flow),
                             // so floor empty/0/NaN to the 0.4 minimum the inline editor
                             // enforces — avoids NaN on screen.
                             const parsed = parseFloat(newVal);
@@ -591,6 +595,11 @@ function handleData(data) {
     const wasHeating = isHeatingState(previousState.state, previousState.substate);
     const isHeating = isHeatingState(state, substate);
     let statusString;
+    // Set when the skin's own tank-level heuristic (below) takes over the status
+    // text. The DE1's `state` stays idle in that case, so it has to be carried
+    // separately for ui.updateMachineStatus to style it as an out-of-water
+    // warning -- that styling is gated on the raw state now, not on the text.
+    let tankWarningActive = false;
 
     // Reset heating timer if state changes FROM heating
     if (wasHeating && !isHeating) {
@@ -633,6 +642,7 @@ function handleData(data) {
         // back at idle rather than winning over Heating/pouring text.
         if (state === MachineState.IDLE && isTankBelowRefillLevel()) {
             statusString = formatStateString(MachineState.NEEDS_WATER);
+            tankWarningActive = true;
         }
     }
 
@@ -747,6 +757,11 @@ function handleData(data) {
     // Pass detailed status information to match the enhanced updateMachineStatus function
     ui.updateMachineStatus({
         status: statusString,
+        // Raw machine state, so the out-of-water styling is decided by what the
+        // DE1 reports rather than by matching the translated display string.
+        // The tank heuristic above is the one case where the skin, not the
+        // machine, is asking for that treatment -- see tankWarningActive.
+        state: tankWarningActive ? MachineState.NEEDS_WATER : state,
         substate: substate,
         stepName: formatStateString(substate), // Use formatted substate as step name
         timeValue: data.elapsedTime, // Use elapsed time from data if available
@@ -1142,6 +1157,21 @@ const SHOT_SETTINGS_KV_FIELDS = [
 // Last value each field arrived with, so a steady stream of identical frames
 // does not become a steady stream of KV lookups.
 const lastSeenShotSettings = {};
+// When each field was last actually re-pushed. The seen-check above only
+// suppresses REPEATS of one value, so a machine that ALTERNATES between the
+// drifted value and ours slips past it on every single frame -- one lagging DE1
+// shot-settings echo is enough to start that, and nothing stopped it. decaid
+// gh-678: 190 PUT /workflow in 27 s (~7/s), each one a KV read, a KV write and
+// two BLE writes, with the DE1 reporting 54 C and 75 C in near-perfect
+// alternation (284 frames vs 287) until the BLE link was reset mid-shot and the
+// shot went unrecorded.
+//
+// A genuine drift is still corrected on the FIRST frame that shows it; only a
+// second correction of the same field is made to wait. The clock starts when we
+// actually push -- a check that found nothing to do costs nothing and must not
+// delay the next real one.
+const RESYNC_COOLDOWN_MS = 30000;
+const lastResyncAt = {};
 
 // The boot resync runs once; a shotSettings frame can move these at any time
 // after it (BLE reconnect, Decaid restart, the machine's own tablet, another
@@ -1150,15 +1180,25 @@ const lastSeenShotSettings = {};
 // changes one, so the user's setting is restored instead of silently sitting
 // wrong until reload.
 //
-// Converges rather than loops: our push makes Decaid emit a corrected frame, and
-// a machine that refuses to take the value keeps sending the same number, which
-// the seen-check skips.
+// Rate-limited per field: see RESYNC_COOLDOWN_MS. Without that this does not
+// converge -- it only converges if a machine that will not take our value keeps
+// reporting the SAME number, and a DE1 under a fast write stream reports the
+// old one and the new one alternately instead.
 function resyncDriftedShotSettings(data) {
+    const now = Date.now();
     for (const [field, key, push] of SHOT_SETTINGS_KV_FIELDS) {
         const value = data[field];
         if (value === undefined || value === lastSeenShotSettings[field]) continue;
         lastSeenShotSettings[field] = value;
+        if (now - (lastResyncAt[field] ?? 0) < RESYNC_COOLDOWN_MS) continue;
+        // Claimed before the await, not after: at frame rate a dozen more frames
+        // arrive before this resolves, and every one of them would pass the
+        // check above. Released again only when there was nothing to push -- an
+        // outright failure keeps the cooldown, since retrying it at frame rate
+        // is the storm this exists to stop.
+        lastResyncAt[field] = now;
         api.resyncIfDrifted(key, value, push)
+            .then(pushed => { if (pushed == null) delete lastResyncAt[field]; })
             .catch(e => logger.warn(`${field} drift resync failed:`, e));
     }
 }
@@ -1213,6 +1253,13 @@ async function loadInitialData() {
             logger.info(`Active profile: ${profile.title}`);
             currentActiveProfile = profile;
 
+            // Bind the save target for the sidebar tiles BEFORE anything can be
+            // edited. The favourite-button scan below used to be the only thing
+            // that did this, so a loaded profile sitting in no favourite slot
+            // left the id null and every dose/yield/grind/temp edit was thrown
+            // away instead of being saved onto that profile.
+            profileManagerModule.syncActiveProfileFromTitle(profile.title);
+
             // Set the current profile in the chart module for step change detection
             chart.setCurrentProfile(profile);
             logger.info('Profile set in chart module for step change detection');
@@ -1237,10 +1284,10 @@ async function loadInitialData() {
                         
 if (assignedProfileRecord && assignedProfileRecord.profile &&
                             assignedProfileRecord.profile.title === profile.title) {
-                            // This button has the active profile assigned to it
-                            // Sync activeProfileId so saveGrindToActiveProfile works after page load/refresh
-                            profileManagerModule.setActiveProfile(assignedProfileKey);
-                            logger.info(`Synced activeProfileId to ${assignedProfileKey} for profile "${profile.title}"`);
+                            // This button has the active profile assigned to it.
+                            // Highlight only: syncActiveProfileFromTitle above
+                            // already bound activeProfileId, and it covers the
+                            // profiles that sit in no favourite slot too.
                             const activeBgClass = 'bg-[var(--mimoja-blue-v2)]';
                             const activeTextClass = 'text-white';
                             const inactiveTextClass = 'text-[var(--mimoja-blue)]';
@@ -1873,6 +1920,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         await initUnits();
         ui.initUI({ onWeightClick: handleWeightClick }); // also inits the screensaver
         initScaling();
+        // Sheets for UI that is never on screen at boot (numpad, time picker,
+        // long-press menu). They used to be render-blocking <link>s in
+        // index.html; an injected stylesheet blocks rendering too, so hold them
+        // behind two frames and let the dashboard paint first. Failures are
+        // swallowed: the modals still function unstyled, and nothing else waits
+        // on this.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            ['numpad-modal.css', 'time-picker-modal.css', 'context-menu.css']
+                .forEach(file => loadStyle(`src/css/${file}`).catch(() => {}));
+        }));
         initNumpadModal();
         initTimePicker();
         initMobileValueInputs();

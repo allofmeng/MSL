@@ -161,6 +161,10 @@ export function closeContextMenu() {
     backdrop.classList.remove('context-menu-backdrop--open');
     anchor && anchor.classList.remove('long-press-active');
     activeMenu = null;
+    // Hand focus back to whatever opened the menu. On a tablet the menu steals
+    // focus to its first item on open; without this the focus ring is left on a
+    // detached node and the next Tab restarts from the top of the document.
+    if (anchor?.isConnected && typeof anchor.focus === 'function') anchor.focus({ preventScroll: true });
     if (typeof onClose === 'function') {
         try { onClose(); } catch (err) { console.error('[context-menu] onClose error', err); }
     }
@@ -173,13 +177,28 @@ export function openContextMenu(anchorEl, items, options = {}) {
     const { backdrop, menu } = ensureRoot();
     const close = () => closeContextMenu();
     buildItems(menu, items, close);
+    // Touch + a long list: anchor-positioning puts a tall menu half off-screen
+    // and under the finger. Dock it to the bottom as a sheet instead, with its
+    // own scroll (see .context-menu--bottom-sheet).
+    const actionCount = items.filter(item => !item.divider).length;
+    const bottomSheet = window.matchMedia?.('(pointer: coarse)').matches && actionCount >= 4;
+    menu.classList.toggle('context-menu--bottom-sheet', bottomSheet);
 
     menu.style.visibility = 'hidden';
     menu.classList.add('context-menu--open');
     backdrop.classList.add('context-menu-backdrop--open');
 
     requestAnimationFrame(() => {
-        position(menu, anchorEl);
+        if (bottomSheet) {
+            // The sheet is placed entirely by CSS — clear anything a previous
+            // anchored open left behind, or the inline left/top wins over it.
+            menu.style.removeProperty('left');
+            menu.style.removeProperty('top');
+            menu.style.removeProperty('--arrow-offset');
+            menu.classList.remove('context-menu--above', 'context-menu--below');
+        } else {
+            position(menu, anchorEl);
+        }
         menu.style.visibility = '';
         const first = focusableItems(menu)[0];
         if (first) first.focus();

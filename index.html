@@ -31,27 +31,32 @@
     <link href="src/css/app.css" rel="stylesheet" type="text/css" />
     <link href="src/css/dark-mode.css" rel="stylesheet" type="text/css" />
     <link href="src/css/main.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/numpad-modal.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/time-picker-modal.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/notes-modal.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/context-menu.css" rel="stylesheet" type="text/css" />
-    <link href="src/css/help-overlay.css" rel="stylesheet" type="text/css" />
+    <!-- profile-editor.css stays render-blocking: the editor is a router
+         fragment, and the router does not load CSS for the HTML it splices in,
+         so an async sheet would land after the page is already on screen. -->
     <link href="src/css/profile-editor.css" rel="stylesheet" type="text/css" />
-    <link rel="stylesheet" href="src/vendor/easymde.min.css">
-    <script src="src/vendor/easymde.min.js"></script>
-    <script src="src/vendor/iro.min.js"></script>
-    <script src="src/vendor/qrcodegen.js"></script>
-    <link rel="preload" href="src/modules/ui.js" as ="script"/>
-    <link rel="preload" href="src/settings/settings.js" as ="script"/>
-    <link rel="preload" href="src/profiles/profile_selector.html" as="document">
-    <link rel="preload" href="src/settings/settings.html" as="document">
-    <link rel="preload" href="src/modules/profile_selector.js" as="script">
-    <link rel="preload" href="src/modules/plotly-3.1.0.min.js" as="script">
-    <link rel="preload" href="src/modules/router.js" as="script">
-    <link rel="preload" href="src/modules/api.js" as="script">
-    <script src="src/modules/plotly-3.1.0.min.js"></script>
+    <!-- numpad-modal / time-picker-modal / context-menu / notes-modal /
+         help-overlay CSS used to block the first paint here (~35 KB for five
+         sheets) even though none of it styles anything visible at boot. They
+         are now injected with vendor-loader's loadStyle() by whoever owns the
+         UI: app.js's post-scaling rAF for the three modal/menu sheets,
+         notes-modal.js and helpOverlay.js for their own. Appended to <head>
+         after these, so help-overlay.css still outranks main.css (see the note
+         in main.css about the main-page override). -->
+    <!-- easymde (320 KB + CSS), iro (28 KB), qrcodegen (45 KB) and plotly
+         (4.7 MB) used to load here as blocking <script>/<link> in <head>: ~5 MB
+         fetched, parsed and executed before the first pixel of the dashboard,
+         paid again every time Decaid reloads the skin after a 10-minute
+         background unload. They are now injected on demand by
+         src/modules/vendor-loader.js -- plotly when the chart first draws, the
+         other three when the UI that needs them is opened. -->
+    <!-- The sub-page preloads (settings.js/.html, profile_selector.js/.html)
+         were speculative fetches competing with the dashboard's own critical
+         path on the tablet; ui.js / router.js / api.js are static imports of
+         app.js and load regardless. router.js also had its own <script> tag,
+         which was redundant for the same reason — app.js imports it, and the
+         module registry hands out one instance either way. -->
     <script src="src/modules/reconnecting-websocket.js" defer></script>
-    <script src="src/modules/router.js" type="module"></script>
     <script src="src/modules/app.js" type="module"></script>
     <script src="src/modules/helpOverlay.js" type="module"></script>
 </head>

@@ -10,6 +10,7 @@ import * as chart from './chart.js';
 import { getSupportedLanguages, getCurrentLanguage, setLanguage, getTranslation } from './i18n.js';
 import { getTotalTime as getShotTotalTime } from './shotData.js';
 import { formatTemp, fromDisplayTemp, displayStepToCelsius, boundToDisplay, getTempUnit } from './units.js';
+import { whenPlotly } from './vendor-loader.js';
 
 
 function initLanguageSwitcher() {
@@ -145,6 +146,9 @@ export function updateDoseAndDrinkOutValue(newDoseIn, newDrinkOut) {
 
     updateWorkflow(payload).then(() => {
         logger.debug(`Dose In and Drink Out values updated via workflow: ${newDoseIn}g : ${newDrinkOut}g`);
+        // Same per-profile save the +/- buttons and the numpad do — without it a
+        // ratio preset was the one way to set dose/yield that did not stick.
+        window.app?.saveContextToActiveProfile?.({ targetDoseWeight: newDoseIn, targetYield: newDrinkOut });
     }).catch(error => {
         logger.error(`Failed to update dose in and drink out values via workflow:`, error);
     });
@@ -2155,7 +2159,7 @@ function heatingStatusParts(raw) {
 }
 
 export function updateMachineStatus(data) {
-    const { status, substate, stepName, timeValue, isClickable,  isHeating, isHeatingFromTimeToReady, steamTemperature } = data;
+    const { status, state, substate, stepName, timeValue, isClickable,  isHeating, isHeatingFromTimeToReady, steamTemperature } = data;
     // Steam boiler is considered ready at/above 130°C. Below that it still needs
     // warming, which is the only time we surface a steam "Heating" message.
     const STEAM_HEATER_READY_C = 130;
@@ -2201,11 +2205,12 @@ export function updateMachineStatus(data) {
     const isHotWaterState = status?.toLowerCase().includes('hotwater') ||
                             status?.toLowerCase().includes('hot water') ||
                             substate?.toLowerCase().includes('hotwater');
-    //needswater state
-    const isNeedsWaterState = status?.toLowerCase().includes('needs water') ||
-                                status?.toLowerCase().includes('need')||
-                                status?.toLowerCase().includes('out of water')||
-                             substate?.toLowerCase().includes('needs water');
+    // "Out of water" is the DE1's own needsWater state, nothing else. Gate on the
+    // raw state from the snapshot: the old text match ran on the display string
+    // and `includes('need')` caught anything with "need" in it, so the skin could
+    // sit on "Out of water" while Decaid reported another state entirely.
+    // app.js's tank-level heuristic passes needsWater here deliberately.
+    const isNeedsWaterState = state === 'needsWater';
     // pouringDone is the post-action tail (e.g. steam auto-purge). DE1 keeps
     // state='steam' during this window but the user-visible action is over —
     // exit the steam counter immediately rather than counting through the purge.
@@ -2996,10 +3001,10 @@ export function showGhcControls() {
     const chartEl = document.getElementById('plotly-chart');
     if (chartEl) {
         chartEl.style.width = '';
-        requestAnimationFrame(() => requestAnimationFrame(() => {
+        requestAnimationFrame(() => requestAnimationFrame(() => whenPlotly(() => {
             Plotly.relayout(chartEl, { width: 1268 });
             chart.refreshLabelMargin();
-        }));
+        })));
     }
 }
 
@@ -3027,10 +3032,10 @@ export function hideGhcControls() {
     const chartEl = document.getElementById('plotly-chart');
     if (chartEl) {
         chartEl.style.width = '';
-        requestAnimationFrame(() => requestAnimationFrame(() => {
+        requestAnimationFrame(() => requestAnimationFrame(() => whenPlotly(() => {
             Plotly.relayout(chartEl, { width: 1460 });
             chart.refreshLabelMargin();
-        }));
+        })));
     }
 }
 

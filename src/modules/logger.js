@@ -2,7 +2,10 @@ const noop = () => {};
 
 export const logger = {
     debug: noop, // Start with a no-op function for debug
-    info: console.info.bind(console, '[INFO]'),
+    // Also a no-op: the info calls on the boot path (i18n, idb, sockets) cost
+    // real time on a tablet's console, and nothing reads them in production.
+    // Flip to console.info temporarily when tracing a startup problem.
+    info: noop,
     warn: console.warn.bind(console, '[WARN]'),
     error: console.error.bind(console, '[ERROR]'),
 };

@@ -43,6 +43,7 @@ import { openNotesModal } from './notes-modal.js';
 import { getTranslation } from './i18n.js';
 import { callPluginEndpoint, getPluginSettings } from './api.js';
 import { validateProfileStructure } from './profileManager.js';
+import { whenPlotly } from './vendor-loader.js';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
@@ -1003,7 +1004,11 @@ function renderPreview() {
     renderStats();
 
     const graphDiv = document.getElementById('pe-graph');
-    if (!graphDiv || typeof Plotly === 'undefined') return;
+    if (!graphDiv) return;
+    // Plotly is loaded on demand now (vendor-loader.js). The old
+    // `typeof Plotly === 'undefined'` bail would leave the preview permanently
+    // blank on the first open; re-enter once the script is in instead.
+    if (!window.Plotly) return whenPlotly(() => renderPreview());
 
     const { traces, layout } = buildPreviewFigure();
     Plotly.react(graphDiv, traces, layout, { responsive: true, displayModeBar: false });
@@ -1111,7 +1116,7 @@ function buildPreviewFigure() {
 // profile as it stands when opened and nothing behind it can change while the
 // modal is up.
 function openGraphZoom() {
-    if (typeof Plotly === 'undefined') return;
+    if (!window.Plotly) return whenPlotly(() => openGraphZoom());
 
     const dlg = document.createElement('dialog');
     dlg.className = 'pe-dialog pe-zoom';
@@ -1751,18 +1756,32 @@ async function saveProfile() {
 
         // Legacy-field stripping + REA Profile-model adaptation happens at the
         // api.js write boundary (sanitizeProfileForRea), covering every path.
-        //
+
+        // A record's id IS the hash of its execution fields — title/author/notes
+        // are hashed separately and are not part of identity. So a rename with no
+        // execution change cannot mint a new record: POST hits the server's
+        // dedup (ProfileController.create returns the existing record untouched)
+        // and the new name is silently dropped. It has to go through PUT, which
+        // keeps the id and rewrites the metadata. A default can't be PUT at all
+        // (the server rejects content edits on defaults), so say so instead of
+        // pretending the rename stuck.
+        if (titleChanged && !execChanged && src.isDefault) {
+            showToast(t('Change a setting to save a copy'), 3500, 'info');
+            return;
+        }
+
         // Save routing (REA versioning model):
         //  - default + execution change → POST fork (PUT would be rejected); the
         //    default stays as the parent/reset point.
-        //  - new profile or explicit save-as → POST (parentId links the source).
+        //  - new profile, or save-as that actually changes execution → POST
+        //    (parentId links the source).
         //  - otherwise → PUT in place; the server keeps the id on a
-        //    presentation-only change or rehashes it (deleting the old) on a
-        //    user execution change.
+        //    presentation-only change (rename included) or rehashes it (deleting
+        //    the old) on a user execution change.
         let saved;
         if (src?.isDefault && execChanged) {
             saved = await uploadProfileWithParent(editorState.profile, src.id);
-        } else if (!src || titleChanged) {
+        } else if (!src || (titleChanged && execChanged)) {
             saved = await uploadProfileWithParent(editorState.profile, src?.id ?? null);
         } else if (execChanged) {
             // Overwrite of an existing user profile: keep the prior version as a
@@ -1779,7 +1798,8 @@ async function saveProfile() {
             }
             try { await updateProfileVisibility(src.id, 'hidden'); } catch (_) {}
         } else {
-            // Presentation-only change (title/author/notes) → same id, PUT in place.
+            // Presentation-only change (title/author/notes, no execution change)
+            // → same id, PUT in place. Renaming a user profile lands here.
             saved = await updateProfile(src.id, editorState.profile);
         }
 

@@ -14,6 +14,7 @@ It was called **Streamline.js** (id `streamline.js`) until v0.0.1. The rename co
 | `streamline-app`, `streamline` (bridge KV namespaces) | hold live user settings and the legacy-profile migration source |
 | `streamline.cupWarmerTarget`, `.dye2Enabled`, `.dyeStripMode`, `.steamStopMode`, `.steamStopModeFallback` | localStorage prefs; cup-warmer.js carries an explicit warning about orphaning them |
 | `streamline_scale_device_id`, `streamlineHelpHidden`, `streamlineHelpLaunches` | persisted keys |
+| `streamlineProfileOverrides` (KV namespace) | per-profile dose/yield/grind tile edits, keyed by profile id — `profile-overrides.js` |
 | `showOnStreamlineDashboard` | a field in DYE2's KV contract — a third-party name, not ours |
 | `streamline_entry_page_setup` etc. in `src/css/*.css` | citations of the original `skin.tcl` |
 | `Streamline` / `Streamline Dark` rows in the translation CSV | DE1-app theme names, unrelated to this skin |
@@ -101,7 +102,13 @@ Two of these encode hard-won middleware workarounds — read their header commen
 - **localStorage**: small sync-read UI prefs — `theme`, `language`, `reaHostname`, `uiZoom`, screensaver/visualizer/water-tank keys, `streamline.*` feature keys. Some values (e.g. temp unit) are written to *both*, IDB as the durable copy.
 - **Bridge KV store** (`/api/v1/store/...`): values that belong to the machine/user rather than the browser (numpad recent values, etc.).
 
-**i18n** (`i18n.js`) parses `src/ui/de1 gui translation - Sheet1.csv` at runtime — the CSV header row *is* the language list. Keys are the English strings, matched case-insensitively. The router calls `translatePage()` on every freshly injected fragment.
+**i18n** (`i18n.js`) reads `src/ui/de1 gui translation - Sheet1.csv` at runtime. Keys are the English strings, matched case-insensitively; the router calls `translatePage()` on every freshly injected fragment.
+
+The sheet is ~1.5 MB with 32 language columns, so only the **active** column is parsed — by `parseTranslationColumn()` in `i18n-parser.js` (pure, no DOM) — and the result is cached in IndexedDB's `settings` store under `translations:${APP_VERSION}:${lang}`. English never parses at all: the key *is* the English string. A cache miss, a stale entry or any IDB failure falls through to parsing the CSV; a *fetch* failure falls back to English, never to a blank UI.
+
+The language list is no longer derived from the CSV header row — it is pinned as `SUPPORTED_LANGUAGES` in `i18n-parser.js` so the switcher can be populated without touching the 1.5 MB file. **Adding or removing a column in the sheet means editing that constant**, or the language silently never appears; `test/i18n-fast-path.test.mjs` asserts the two stay in sync.
+
+`setLanguage()` is **async** (it may have to fetch and parse). It resolves to the language actually applied, which is not necessarily the one asked for.
 
 **Units**: the machine and the bridge always speak **Celsius** on the wire. `units.js` is a display-only conversion layer — never persist or transmit Fahrenheit.
 
@@ -111,7 +118,7 @@ Two of these encode hard-won middleware workarounds — read their header commen
 
 - Comments here carry *why*, often at length, and frequently document a bug that the code's shape exists to prevent. Don't strip them when refactoring; extend them when you change the reasoning.
 - A `ponytail:` comment marks a deliberate simplification and names its ceiling.
-- Logging goes through `logger.js` (`logger.debug` is a no-op unless `setDebug(true)` — app.js currently enables it).
+- Logging goes through `logger.js`. `logger.debug` is a no-op unless `setDebug(true)` (app.js currently enables it); `logger.info` is a permanent no-op — the boot path is dense with info calls and they cost real time on the tablet's console. Only `warn`/`error` reach the console unconditionally.
 - The `src/profiles/*.json` files are sample/fixture profiles; nothing in the code loads them. Real profiles come from the bridge.
 - `src/vendor/` (easymde, iro) and `src/modules/plotly-3.1.0.min.js` and `reconnecting-websocket.js` are vendored third-party — don't hand-edit.
 - Root `app.css` is a stale duplicate of an older `src/css/app.css`; `index.html` loads the one under `src/css/`.

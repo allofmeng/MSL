@@ -197,6 +197,19 @@ async function displayShot(index) {
             paintedShotId = shot.id;
         }
         renderPastShot(shots[currentShotIndex]);
+    } else {
+        // No measurements, and the fetch above could not get any -- the record
+        // is a list entry the server no longer has (a reset or re-pointed
+        // Decaid leaves the local cache holding shots whose /shots/{id} now
+        // 404s). Draw the empty chart rather than leaving whatever was there,
+        // or nothing at all: at boot nothing has drawn yet, so skipping this
+        // left the dashboard with no chart whatsoever -- no axes, no grid.
+        // The stale cache is deliberately NOT purged here: it is what keeps
+        // the app usable when Decaid is unreachable.
+        logger.warn(`Shot ${shot.id} has no measurements available; showing an empty chart.`);
+        chart.clearChart();
+        clearShotData();
+        paintedShotId = null;
     }
 
     // Update button states

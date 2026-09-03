@@ -1,77 +1,88 @@
 import { logger } from './logger.js';
 import { openDB, getSetting, setSetting } from './idb.js';
+import { SUPPORTED_LANGUAGES, parseTranslationColumn } from './i18n-parser.js';
+import { APP_VERSION } from '../version.js';
 
-const translations = {};
+// One language at a time. The sheet is ~1.5 MB / 32 columns; building a table
+// for all 32 and using one was the single most expensive thing in boot. The
+// active column is parsed by i18n-parser.js and cached in IndexedDB, and
+// English skips parsing entirely because the key IS the English string.
+let translations = {};
 // lowercased key -> canonical CSV key, so lookups tolerate casing differences
 // between the UI text and the sheet (e.g. "Force On" finds "force on").
-const keyIndex = {};
-export let supportedLanguages = [];
+let keyIndex = {};
+let loadedLanguage = 'en';
+let translationCsvPromise = null;
+// The list no longer comes from the CSV header row at runtime — it is pinned in
+// i18n-parser.js. Adding a column to the sheet means editing that constant.
+export const supportedLanguages = SUPPORTED_LANGUAGES;
 export let currentLanguage = 'en';
 
-/**
- * Parses a CSV string into a usable translation object.
- * @param {string} csvText The CSV content.
- */
-function parseCSV(csvText) {
-    if (csvText.charCodeAt(0) === 0xFEFF) {
-        csvText = csvText.substring(1);
-    }
-    const lines = csvText.trim().split(/\r?\n/);
-    const headers = lines[0].split(',').map(h => h.trim());
-    supportedLanguages = headers;
-
-    // Initialize translation objects for each language
-    headers.forEach(lang => {
-        translations[lang] = {};
-    });
-
-    const splitRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
-
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (!line) continue;
-
-        const values = line.split(splitRegex).map(val => {
-            let value = val.trim();
-            if (value.startsWith('"') && value.endsWith('"')) {
-                value = value.substring(1, value.length - 1).replace(/""/g, '"');
-            }
-            return value;
-        });
-
-        const key = values[0];
-        if (key) {
-            keyIndex[key.toLowerCase()] = key;
-            headers.forEach((lang, index) => {
-                if (values[index] !== undefined) {
-                    const translation = values[index] || values[0] || key;
-                    translations[lang][key] = translation;
-                }
-            });
-        }
-    }
-    logger.info("Translations loaded for languages:", supportedLanguages);
+function clearTranslations() {
+    translations = {};
+    keyIndex = {};
+    loadedLanguage = 'en';
 }
 
-
-/**
- * Fetches and loads the translation data.
- */
-async function loadTranslations() {
-    try {
+function getTranslationCsv() {
+    if (!translationCsvPromise) {
         // no-cache: revalidate with the server every load so sheet edits apply on
         // refresh instead of sticking to a cached copy (the cause of "translation
         // exists in CSV but not applied"). 304 when unchanged, so it's cheap.
-        const response = await fetch('src/ui/de1 gui translation - Sheet1.csv', { cache: 'no-cache' });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const csvText = await response.text();
-        parseCSV(csvText);
-    } catch (error) {
-        console.error("Could not load or parse translation file:", error);
+        translationCsvPromise = fetch('src/ui/de1 gui translation - Sheet1.csv', { cache: 'no-cache' }).then(async response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.text();
+        }).catch(error => {
+            // Drop the memo so a later language switch can retry the fetch.
+            translationCsvPromise = null;
+            throw error;
+        });
     }
+    return translationCsvPromise;
+}
+
+/**
+ * Loads (or reuses) the translation table for one language.
+ * Cache key carries APP_VERSION so a skin update re-parses instead of serving a
+ * table built from the previous release's sheet. A miss, a stale entry or any
+ * IndexedDB failure falls through to parsing the CSV — never to a blank UI.
+ */
+async function loadTranslations(language) {
+    if (language === 'en') {
+        clearTranslations();
+        return;
+    }
+    if (loadedLanguage === language) return;
+    // Rides the existing generic `settings` key/value store in idb.js — no new
+    // store, so no DB_VERSION bump.
+    const cacheKey = `translations:${APP_VERSION}:${language}`;
+    let parsed;
+    try {
+        await openDB();
+        parsed = await getSetting(cacheKey);
+    } catch (_) {}
+    if (!parsed?.table || !parsed?.keyIndex) {
+        parsed = parseTranslationColumn(await getTranslationCsv(), language);
+        setSetting(cacheKey, parsed).catch(() => {});
+    }
+    translations = parsed.table;
+    keyIndex = parsed.keyIndex;
+    loadedLanguage = language;
+    logger.info(`Translations loaded for language: ${language}`);
+}
+
+/**
+ * Resolves a requested tag against the supported list, falling back from a
+ * region-qualified tag ("de-AT") to its base ("de").
+ * @returns {string|null} the supported code, or null.
+ */
+function findSupportedLanguage(language) {
+    const normalized = String(language || '').toLowerCase();
+    if (supportedLanguages.includes(normalized)) return normalized;
+    const base = normalized.split('-')[0];
+    return supportedLanguages.includes(base) ? base : null;
 }
 
 /**
@@ -189,7 +200,7 @@ export function fitTextToWidth(el) {
  * @returns {string} The translated string, or the key if not found.
  */
 export function getTranslation(key) {
-    const table = translations[currentLanguage];
+    const table = translations;
     if (table && table[key] !== undefined && table[key] !== '') return table[key];
     // Case-insensitive fallback: tolerate UI/CSV casing differences. For the
     // English/source column the value equals the key, so return the caller's
@@ -223,45 +234,71 @@ export function getCurrentLanguage() {
  * Sets the current language and translates the page.
  * @param {string} lang The language code (e.g., 'en', 'fr').
  */
-export function setLanguage(lang) {
-    if (supportedLanguages.includes(lang)) {
-        currentLanguage = lang;
-        // Write to both — IDB survives WebView process kills on iOS, localStorage is sync fallback
-        localStorage.setItem('language', lang);
-        setSetting('language', lang).catch(() => {});
-        logger.info(`Language set to: ${lang}`);
-    } else {
+export async function setLanguage(lang) {
+    const requestedLanguage = findSupportedLanguage(lang);
+    if (!requestedLanguage) {
         console.warn(`Language '${lang}' not supported. Defaulting to 'en'.`);
-        currentLanguage = 'en';
     }
+    let nextLanguage = requestedLanguage || 'en';
+    try {
+        await loadTranslations(nextLanguage);
+    } catch (error) {
+        // Fetch or parse failed: fall back to English (keys are the English
+        // strings, so the UI still reads correctly) rather than leaving it blank.
+        console.error("Could not load or parse translation file:", error);
+        clearTranslations();
+        nextLanguage = 'en';
+    }
+    currentLanguage = nextLanguage;
+    // Only persist a language we actually managed to load — otherwise a transient
+    // failure would pin the user to English on every subsequent boot.
+    if (nextLanguage === (requestedLanguage || 'en')) {
+        // Write to both — IDB survives WebView process kills on iOS, localStorage is sync fallback
+        localStorage.setItem('language', nextLanguage);
+        setSetting('language', nextLanguage).catch(() => {});
+    }
+    logger.info(`Language set to: ${currentLanguage}`);
+    // Re-sync the switcher: the selection may have been rejected (unsupported)
+    // or downgraded to English by a load failure.
+    const switcher = document.getElementById('language-switcher');
+    if (switcher) switcher.value = currentLanguage;
     translatePage();
     document.dispatchEvent(new CustomEvent('streamline:languagechange', { detail: { language: currentLanguage } }));
+    return currentLanguage;
 }
 
 /**
  * Initializes the internationalization module.
  */
 export async function initI18n() {
-    await loadTranslations();
+    // Paint English immediately from the sync-readable prefs, then yield a frame
+    // so the dashboard is on screen before the (potentially heavy) first parse.
+    const localLanguage = findSupportedLanguage(localStorage.getItem('language'));
+    const initialLanguage = localLanguage || findSupportedLanguage(navigator.language) || 'en';
+    currentLanguage = initialLanguage;
+    localStorage.setItem('language', initialLanguage);
+    translatePage();
+    // Yield a frame so that English paint reaches the screen before the first
+    // (potentially heavy) column parse. rAF is the fast path; the timeout is the
+    // floor. Upstream awaits the bare rAF, but MSL's whole boot chain is
+    // serialized behind `await initI18n()` — initUnits, initUI, initScaling,
+    // initRouter and every WebSocket — and rAF does not fire in a WebView that
+    // is reloaded while backgrounded (Decaid unloads the skin after 10 minutes
+    // and reloads it on return). Without the floor that reload could hang with
+    // nothing initialized.
+    await new Promise(resolve => {
+        const timer = setTimeout(resolve, 250);
+        if (typeof requestAnimationFrame !== 'function') return;
+        requestAnimationFrame(() => setTimeout(() => { clearTimeout(timer); resolve(); }, 0));
+    });
 
     // IDB is primary (survives WebView process kills on iOS/Android).
     // localStorage is fallback for first run or when IDB hasn't been written yet.
-    let savedLang = null;
+    let savedLanguage = null;
     try {
         await openDB();
-        savedLang = await getSetting('language');
+        savedLanguage = findSupportedLanguage(await getSetting('language'));
     } catch (_) {}
-    if (!savedLang) {
-        savedLang = localStorage.getItem('language');
-    }
 
-    const browserLang = navigator.language.split('-')[0];
-    let initialLang = 'en';
-    if (savedLang && supportedLanguages.includes(savedLang)) {
-        initialLang = savedLang;
-    } else if (supportedLanguages.includes(browserLang)) {
-        initialLang = browserLang;
-    }
-
-    setLanguage(initialLang);
+    await setLanguage(savedLanguage || initialLanguage);
 }

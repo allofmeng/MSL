@@ -2,6 +2,19 @@ import { logger } from './logger.js';
 import { getTranslation } from './i18n.js';
 import { hasMachineGFlow, createScaleFlowResolver, createPourPhaseTracker } from './historical-gflow.js';
 import { EXP_TOP_FLOOR, computeExpandedTopYMax, computeExpandedTempRange } from './chart-autoscale.js';
+import { loadPlotly, whenPlotly } from './vendor-loader.js';
+
+// Plotly is 4.7 MB and is now fetched on demand instead of blocking first paint
+// (see vendor-loader.js). Every entry point below that reaches a `Plotly.*` call
+// opens with `if (!window.Plotly) return whenPlotly(() => <itself>);`: once the
+// script is in, that is one truthy test and the function runs synchronously and
+// in the same order as before; a call that lands during the initial load is
+// re-run after it rather than silently doing nothing. The re-entrant form is
+// used rather than making these async so that callers -- most of which do not
+// await -- keep their existing ordering guarantees.
+//
+// Everything reached only from one of those entry points (flushChart and its
+// rAF, renderExpandedCharts, getAnnotations, ...) needs no guard of its own.
 
 // Maps internal trace key → i18n key used for the chart label.
 const LABEL_KEYS = {
@@ -31,6 +44,27 @@ function getChartElement() {
         if (el) return el;
     }
     return document.getElementById('plotly-chart');
+}
+
+// Plotly only tolerates relayout/update/restyle on a div it has actually drawn
+// into: those paths all read gd._fullLayout, which does not exist before the
+// first newPlot/react, or after a Plotly.purge. Both edges are reachable here —
+// initChart deliberately defers the first draw until there is data and the
+// scaling pass has settled (see initChart), and profile_selector purges the div
+// on teardown. Touching the div in either window threw
+// "Cannot read properties of undefined (reading '_guiEditing')".
+function isPlotted(element) {
+    return !!element && !!element._fullLayout;
+}
+
+// profile_selector.html (and other subpages) carry their own #plotly-chart
+// with the same id, so it stays visible (has an offsetParent) even while the
+// main page's own chart is hidden behind it. Anything that repaints from the
+// shared chartData/layout globals -- which only ever hold the main page's shot
+// data -- must check THIS, not element.offsetParent, before repainting, or it
+// clobbers whatever the subpage (e.g. a profile preview) just drew.
+function isMainChartActive() {
+    return document.getElementById('main-page')?.style.display !== 'none';
 }
 let currentSubstate = 'idle';
 let previousSubstateForShape = 'idle'; // To track step changes for vertical lines
@@ -352,22 +386,29 @@ let isLiveShot = false;
 // Call when a shot finishes to reveal the trace-end labels on the chart that
 // was just live.
 export function finalizeLiveChart() {
+    if (!window.Plotly) return whenPlotly(() => finalizeLiveChart());
     isLiveShot = false;
     const element = getChartElement();
-    if (!element) return;
+    if (!isPlotted(element)) return;
     Plotly.relayout(element, { annotations: getAnnotations() });
 }
 
 // Re-measure labels and refresh annotations + x-range so labels stay inside
 // the plot area after the chart width changes (e.g. GHC column toggling).
 export function refreshLabelMargin() {
+    if (!window.Plotly) return whenPlotly(() => refreshLabelMargin());
     const element = getChartElement();
     if (!element) return;
     // Hidden behind another page (e.g. settings, profile selector) -- skip the
     // Plotly.relayout below. It's a real, non-cheap layout op with zero
     // visible effect while hidden, and every streamline:languagechange fires
     // this unconditionally regardless of which page is actually showing.
-    if (element.offsetParent === null) return;
+    // offsetParent alone doesn't catch it: a subpage's own #plotly-chart is
+    // visible too, so it'd pass that check and get repainted with the main
+    // page's stale chartData/layout -- clobbering the profile preview it just
+    // drew. The expanded overlay is the one case where the main chart is
+    // hidden and a refresh is still wanted.
+    if ((element.offsetParent === null || !isMainChartActive()) && !expandedOpen) return;
     // Never drawn yet. initChart() deliberately skips the first newPlot (see its
     // comment), so between boot and the first plotHistoricalShot/clearChart the
     // div is visible but has no Plotly graph on it -- relayout then dereferences
@@ -459,6 +500,13 @@ let appliedRangeMax = null; // last applied range end
 
 function flushChart() {
     rafHandle = 0;
+    // Same trap as refreshLabelMargin: while a subpage is open, getChartElement
+    // resolves to THAT page's #plotly-chart, so a live frame would paint the
+    // main page's shot data over whatever the subpage is showing. Nothing is
+    // lost by skipping: every flush restyles from the full chartData arrays, so
+    // the first flush after returning to the main page draws the whole shot.
+    // pendingReact is deliberately left set for that flush.
+    if (!isMainChartActive() && !expandedOpen) return;
     const element = getChartElement();
     if (!element) { pendingReact = false; return; }
 
@@ -466,8 +514,10 @@ function flushChart() {
     const dtickValue = dtickForTime(pendingTime);
     const rangeMax = rangeMaxForLabels(pendingTime);
 
-    // A step marker changed shapes → full react. Then pin the x-range.
-    if (pendingReact) {
+    // A step marker changed shapes → full react. Then pin the x-range. An
+    // un-drawn div has to take this path too: Plotly.update below cannot
+    // create the plot.
+    if (pendingReact || !isPlotted(element)) {
         pendingReact = false;
         isLiveShot = true; // live from here on — applyLabelLayout gives Plotly no annotations
         const layout = theme === 'dark' ? darkLayout : lightLayout;
@@ -710,6 +760,7 @@ function renderExpandedCharts() {
 export function isExpandedChartOpen() { return expandedOpen; }
 
 export function openExpandedChart() {
+    if (!window.Plotly) return whenPlotly(() => openExpandedChart());
     const overlay = document.getElementById('expanded-chart-overlay');
     if (!overlay) return;
     expandedOpen = true;
@@ -731,6 +782,9 @@ export function openExpandedChart() {
 }
 
 export function closeExpandedChart() {
+    // No whenPlotly re-entry: with Plotly not yet loaded nothing has been drawn,
+    // so there is nothing to purge -- but the overlay still has to be hidden, so
+    // guard the purge itself rather than returning early.
     expandedOpen = false;
     const overlay = document.getElementById('expanded-chart-overlay');
     if (overlay) overlay.style.display = 'none';
@@ -738,7 +792,7 @@ export function closeExpandedChart() {
     if (help) help.style.display = helpBtnPrevDisplay;
     const t = document.getElementById('expanded-flow-chart');
     const b = document.getElementById('expanded-temp-chart');
-    try { if (t) Plotly.purge(t); if (b) Plotly.purge(b); } catch (e) { /* nothing to purge */ }
+    try { if (window.Plotly) { if (t) Plotly.purge(t); if (b) Plotly.purge(b); } } catch (e) { /* nothing to purge */ }
     expandedInited = false;
 }
 
@@ -795,7 +849,7 @@ function handleProfileFrameChange(currentFrame, time, profile, theme) {
 function applyPendingUpdates() {
     if (pendingUpdates.shapes || pendingUpdates.annotations) {
         const element = getChartElement();
-        if (element) {
+        if (isPlotted(element)) {
             Plotly.relayout(element, {
                 shapes: pendingUpdates.shapes,
                 annotations: pendingUpdates.annotations
@@ -807,6 +861,9 @@ function applyPendingUpdates() {
 }
 
 export function updateChart(shotStartTime, data, weight, weightFlow = null, filterToPouring = true) {
+    // Gates the whole live path: scheduleChartFlush/flushChart are only ever
+    // reached from here, so they need no guard of their own.
+    if (!window.Plotly) return whenPlotly(() => updateChart(shotStartTime, data, weight, weightFlow, filterToPouring));
     if (data && data.state && data.state.substate) {
         currentSubstate = data.state.substate;
     }
@@ -934,6 +991,7 @@ function resetChartState() {
 }
 
 export function clearChart() {
+    if (!window.Plotly) return whenPlotly(() => clearChart());
     resetChartState();
 
     const theme = localStorage.getItem('theme') || 'light';
@@ -949,6 +1007,7 @@ export function clearChart() {
 }
 
 export function plotHistoricalShot(measurements, workflow = null) {
+    if (!window.Plotly) return whenPlotly(() => plotHistoricalShot(measurements, workflow));
     if (!measurements || measurements.length === 0) {
         clearChart();
         return;
@@ -1267,6 +1326,7 @@ function checkExitCondition(machineData, exitCondition) {
 }
 
 export function plotProfile(profile) {
+    if (!window.Plotly) return whenPlotly(() => plotProfile(profile));
     if (!profile || !profile.steps || profile.steps.length === 0) {
         clearChart();
         return;
@@ -1325,10 +1385,16 @@ export function plotProfile(profile) {
     tempX.push(0);
     tempY.push(initialTemp);
 
+    // Where one step hands over to the next, for the vertical markers below.
+    // The 0 and end-of-profile edges are the axis borders already, so only the
+    // interior boundaries get a line.
+    const stepBoundaries = [];
+
     for (const step of profile.steps) {
         const duration = parseFloat(step.seconds || 0);
         if (duration <= 0) continue;
 
+        if (currentTime > 0) stepBoundaries.push(currentTime);
         const nextTime = currentTime + duration;
         const temp = (parseFloat(step.temperature || 0) / 100) * 10;
         const transition = step.transition || 'fast';
@@ -1351,6 +1417,13 @@ export function plotProfile(profile) {
     const layout = JSON.parse(JSON.stringify(theme === 'dark' ? darkLayout : lightLayout));
     layout.annotations = [];
     layout.shapes = []; // Clear shapes for profile plot
+    // Same dashed step markers the live chart draws (addStepMarker), so a
+    // profile previewed in the selector is read the same way as one being
+    // pulled. MSL's addStepMarker takes a 4th stepName used for the live
+    // chart's annotations; the preview wants the line only, hence ''.
+    for (const boundary of stepBoundaries) {
+        addStepMarker(layout, boundary, theme, '');
+    }
     layout.xaxis.range = [0, currentTime];
 
     // Adaptive X-axis tick density based on profile duration
@@ -1413,6 +1486,11 @@ function updateChartColors(theme) {
 }
 
 export function initChart() {
+    // Kick the 4.7 MB download off at exactly the point in boot where the
+    // blocking <script> used to sit -- it just no longer holds up first paint.
+    // Deliberately not awaited: initChart draws nothing (see the comment below),
+    // it only reads the DOM and installs listeners.
+    loadPlotly().catch(e => logger.error('Plotly failed to load:', e));
     console.log('initChart: Starting chart initialization');
 
     const element = getChartElement();
@@ -1444,6 +1522,7 @@ export function initChart() {
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
+            if (!window.Plotly) return;   // nothing drawn yet -- nothing to resize
             const resizeElement = getChartElement();
             console.log('initChart: Window resize event, checking chart visibility');
             if (resizeElement && resizeElement.offsetParent !== null) {
@@ -1479,8 +1558,10 @@ export function initChart() {
         new ResizeObserver(() => {
             clearTimeout(roTimeout);
             roTimeout = setTimeout(() => {
+                if (!window.Plotly) return;                 // nothing drawn yet
                 if (chartEl.offsetParent === null) return;   // hidden (subpage open)
                 if (!chartEl.clientHeight || !chartEl.clientWidth) return;
+                if (!isPlotted(chartEl)) return;             // nothing drawn to resize yet
                 try {
                     Plotly.relayout(chartEl, { width: chartEl.clientWidth, height: chartEl.clientHeight });
                     refreshLabelMargin();
@@ -1507,6 +1588,7 @@ export function initChart() {
 }
 
 export function setTheme(theme) {
+    if (!window.Plotly) return whenPlotly(() => setTheme(theme));
     updateChartColors(theme); // Apply theme-specific colors
 
     const layoutUpdate = theme === 'dark' ? darkLayout : lightLayout;

@@ -121,6 +121,27 @@
     background: var(--border-color, rgba(0, 0, 0, 0.08));
 }
 
+/* Coarse pointer + >= 4 actions: docked to the bottom of the viewport as a
+   sheet instead of anchored, so a tall menu can't land half off-screen or under
+   the finger that opened it. Insets clear the notch/home indicator; 70vh keeps
+   it scrollable rather than overflowing. */
+.context-menu--bottom-sheet {
+    left: max(12px, env(safe-area-inset-left)) !important;
+    right: max(12px, env(safe-area-inset-right));
+    top: auto !important;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+/* No arrow: the sheet doesn't point at its anchor. */
+.context-menu--bottom-sheet::before {
+    display: none;
+}
+
 .has-context-menu {
     position: relative;
 }
@@ -142,5 +163,44 @@ button.has-context-menu.long-press-active,
     }
     .has-context-menu.long-press-active {
         transition: none;
+    }
+}
+
+@media (pointer: coarse) {
+    .context-menu__item {
+        min-height: 60px;
+    }
+
+    /* The panel separators are 1px wide — an impossible drag target with a
+       finger. The element keeps its 1px layout width (the grid columns are
+       measured off it); the ::after below both draws the visible bar and
+       provides a 48px invisible hit area straddling it. touch-action: none
+       stops the WebView claiming the drag as a scroll before ui.js's
+       touchmove handler gets to preventDefault it. */
+    #separator,
+    #sub-categories-separator {
+        position: relative;
+        touch-action: none;
+        background: transparent;
+    }
+
+    /* 48px wide, of which 44px is transparent border: background-clip:
+       content-box paints only the 4px content box, so the bar looks thin while
+       the touch target is fat. */
+    #separator::after,
+    #sub-categories-separator::after {
+        content: '';
+        position: absolute;
+        z-index: 1;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 48px;
+        box-sizing: border-box;
+        border-right: 22px solid transparent;
+        border-left: 22px solid transparent;
+        transform: translateX(-50%);
+        background: #9ca3af;
+        background-clip: content-box;
     }
 }

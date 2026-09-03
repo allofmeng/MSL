@@ -2,7 +2,7 @@ import * as ui from './ui.js';
 import { logger ,setDebug} from './logger.js';
 import { createSocketSlot } from './socket-slot.js';
 import { openDB, getSetting, setSetting } from './idb.js';
-import { buildCalibrateBody, calResponseHasBody } from './loadcell-cal.js';
+import { buildCalibrateBody, classifyCalState } from './loadcell-cal.js';
 import { deriveDisplayAction, isScreensaverSuppressed } from './screensaver-policy.js';
 import { splitNdjson, advanceFirmwareState, initialFirmwareState } from './firmware-progress.js';
 
@@ -192,7 +192,7 @@ export async function connectScaleDevice() {
          return response.json();
     } catch (error) {
         logger.error('Error during scale connection attempt:', error);
-        return response.json();
+        throw error;
     }
 }
 
@@ -222,30 +222,97 @@ export async function tareScale() {
 // a socket or double-deliver frames.
 const snapshotSocketSlot = createSocketSlot('machine snapshot');
 const shotSettingsSocketSlot = createSocketSlot('shot settings');
+
+// The firmware settles + averages for ~15 s per step, so the PUT only
+// stages the command; the wizard polls the state register until the step
+// leaves its busy phase.
+const CAL_POLL_INTERVAL_MS = 500;
+const CAL_POLL_TIMEOUT_MS = 60000;
+
+// An abort lands while a run is still polling. Firmware-side an aborted
+// step just drops back to idle, which is indistinguishable from a clean
+// finish, so the poll loop reads this flag instead of guessing.
+let calAbortRequested = false;
+
+/**
+ * Read the Bengle load-cell calibration state register (Bengle only;
+ * 404 elsewhere).
+ * @returns {Promise<object>} ScaleCalibrationState — `{step, detectedCell,
+ *   subState, secondsRemaining, status}`.
+ */
+export async function getScaleCalibrationState() {
+    const response = await fetch(`${API_BASE_URL}/machine/scaleCalibration`);
+    if (!response.ok) {
+        throw new Error(`Failed to read scale calibration state. Status: ${response.status}`);
+    }
+    return await response.json();
+}
+
+async function pollScaleCalibration(command) {
+    const deadline = Date.now() + CAL_POLL_TIMEOUT_MS;
+    for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, CAL_POLL_INTERVAL_MS));
+        if (calAbortRequested) return { success: false, message: 'aborted', state: null };
+        let state;
+        try {
+            state = await getScaleCalibrationState();
+        } catch (error) {
+            // The firmware keeps calibrating regardless; a dropped MMR read
+            // must not fail a step that is still running. Retry until the
+            // deadline and only then give up.
+            if (Date.now() > deadline) {
+                return { success: false, message: error.message, state: null };
+            }
+            logger.warn('Scale calibration poll read failed, retrying:', error);
+            continue;
+        }
+        const verdict = classifyCalState(state, command === 'latch');
+        if (!verdict.busy) return { success: verdict.done, message: verdict.error, state };
+        if (Date.now() > deadline) {
+            return { success: false, message: 'Calibration timed out', state };
+        }
+    }
+}
+
 /**
  * Drive one step of the Bengle integrated-scale two-point load-cell
  * calibration (Bengle machines only; 404 elsewhere).
- * @param {'zero'|'left'|'right'|'abort'} command
- * @param {number} [grams] known reference mass — required for 'left'/'right'.
- * @returns {Promise<object>} the ScaleCalResult (`{success, finalStep,
- *   pointStatus, message?}`) for zero/left/right; `{success:true}` for abort.
- * This call blocks while the firmware settles + averages (~15 s per step).
+ *
+ * Wraps PUT /api/v1/machine/scaleCalibration, which answers 202 as soon as
+ * the command is staged (409 when the machine is busy or a shot is
+ * running). zero/latch then poll GET /api/v1/machine/scaleCalibration until
+ * the firmware finishes the step (~15 s), so the returned promise still
+ * resolves once per completed step.
+ * @param {'zero'|'latch'|'abort'} command
+ * @param {number} [grams] known reference mass — required for 'latch'.
+ * @returns {Promise<{success: boolean, message?: string, state: object|null}>}
  */
 export async function calibrateScale(command, grams) {
     try {
         logger.info(`Scale calibration: ${command}${grams != null ? ` @ ${grams}g` : ''}`);
-        const response = await fetch(`${API_BASE_URL}/machine/scale/calibrate`, {
-            method: 'POST',
+        if (command === 'abort') calAbortRequested = true;
+        else calAbortRequested = false;
+        const response = await fetch(`${API_BASE_URL}/machine/scaleCalibration`, {
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(buildCalibrateBody(command, grams)),
         });
+        // 409 = staged nothing (machine busy / shot in progress), body carries the reason.
+        if (response.status === 409) {
+            const rejected = await response.json().catch(() => null);
+            return {
+                success: false,
+                message: rejected?.reason || 'Machine busy',
+                state: rejected?.state || null,
+            };
+        }
         if (!response.ok) {
             const errorBody = await response.text();
             throw new Error(`Scale calibration (${command}) failed. Status: ${response.status}, Body: ${errorBody}`);
         }
-        // zero/left/right -> 200 with a ScaleCalResult; abort -> 202 no body.
-        if (!calResponseHasBody(command)) return { success: true };
-        return await response.json();
+        const accepted = await response.json().catch(() => null);
+        if (command === 'abort') return { success: true, state: accepted?.state || null };
+        return await pollScaleCalibration(command);
     } catch (error) {
         logger.error('Error calibrating scale:', error);
         throw error;
@@ -857,6 +924,19 @@ export async function getKVKeys(namespace) {
     return response.json(); // array of key strings
 }
 
+// Whole namespace in one request. `?full=1` is newer than the plain key list —
+// an older Decaid ignores it and answers with the key array, so fall back to
+// fetching each key rather than failing the caller.
+export async function getKVAll(namespace) {
+    const response = await fetch(`${API_BASE_URL}/store/${encodeURIComponent(namespace)}?full=1`);
+    if (!response.ok) throw new Error(`KV getAll failed: ${response.status}`);
+    const body = await response.json();
+    if (!Array.isArray(body)) return body || {};
+    const out = {};
+    for (const key of body) out[key] = await getKVValue(namespace, key);
+    return out;
+}
+
 export async function getKVValue(namespace, key) {
     const response = await fetch(`${API_BASE_URL}/store/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`);
     if (!response.ok) throw new Error(`KV getValue failed: ${response.status}`);
@@ -1184,6 +1264,10 @@ async function sendShotSettings() {
 // see resyncIfDrifted.
 export const STEAM_DURATION_LAST_VALUE_KEY = 'last-steam-duration';
 export const STEAM_FLOW_LAST_VALUE_KEY = 'last-steam-flow';
+// The steam temperature to come back to when steam is re-armed after being
+// switched off (duration 0). Only ever holds an ENABLED temperature -- 0 is the
+// off state, not something to restore.
+export const STEAM_TEMP_LAST_VALUE_KEY = 'last-steam-temp';
 export const MILK_STOP_LAST_VALUE_KEY = 'last-milk-stop';
 export const FLUSH_DURATION_LAST_VALUE_KEY = 'last-flush-duration';
 export const HOT_WATER_VOLUME_LAST_VALUE_KEY = 'last-hot-water-volume';
@@ -1215,6 +1299,25 @@ export async function persistSharedValue(key, value) {
     }
 }
 
+// The read side of persistSharedValue: shared KV first so every device agrees,
+// per-device IndexedDB only when the store can't be reached. null when neither
+// has a record (or both failed) -- callers treat that as "the user never set
+// this", not as a value.
+export async function readSharedValue(key) {
+    try {
+        return await getValueFromStore(SETTINGS_NAMESPACE, key);
+    } catch (e) {
+        logger.warn(`readSharedValue: KV lookup failed for ${key}, falling back to local cache:`, e);
+        try {
+            await openDB();
+            return await getSetting(key);
+        } catch (e2) {
+            logger.warn(`readSharedValue failed for ${key}:`, e2);
+            return null;
+        }
+    }
+}
+
 // Boot-time resync for a main-page control. A plain GET tells us what Rea's
 // workflow record says, not whether the DE1 itself is still holding that
 // value (BLE reconnect / Rea restart can leave it stale). Re-pushing on
@@ -1225,28 +1328,21 @@ export async function persistSharedValue(key, value) {
 // is the source of truth here so a phone and a tablet agree on the target;
 // IndexedDB is only consulted if the store can't be reached.
 export async function resyncIfDrifted(key, fetchedValue, pushFn) {
-    let remembered = null;
-    try {
-        remembered = await getValueFromStore(SETTINGS_NAMESPACE, key);
-    } catch (e) {
-        logger.warn(`resyncIfDrifted: KV lookup failed for ${key}, falling back to local cache:`, e);
-        try {
-            await openDB();
-            remembered = await getSetting(key);
-        } catch (e2) {
-            logger.warn(`resyncIfDrifted failed for ${key}:`, e2);
-            return;
-        }
-    }
+    const remembered = await readSharedValue(key);
     // No record of the user ever setting this -> whatever the machine holds
     // stands. Otherwise the remembered value wins, INCLUDING when the workflow
     // has no value at all (fetchedValue null/undefined): a missing field is not
     // a reason to drop what the user asked for, it is the strongest reason to
     // push it. Milk stop keeps its own extra guard -- see
     // resyncMilkStopIfDrifted, where 0 is a real choice rather than an absence.
-    if (remembered == null) return;
-    if (remembered === fetchedValue) return;
+    if (remembered == null) return null;
+    if (remembered === fetchedValue) return null;
     await pushFn(remembered);
+    // Returns what was pushed (null when nothing was) so the caller can tell a
+    // real correction from a check that found nothing to do -- app.js's
+    // per-field resync cooldown releases itself on a null. See
+    // RESYNC_COOLDOWN_MS in app.js.
+    return remembered;
 }
 
 export async function setTargetHotWaterVolume(volume) {
@@ -1272,11 +1368,33 @@ export async function setTargetHotWaterDuration(duration) {
 }
 
 export async function setTargetSteamTemp(temp) {
-    return updateWorkflow({
-        steamSettings: {
-            targetTemperature: parseFloat(temp)
-        }
-    });
+    // Schema: integer, 0 = heater off, enabled range 135-160 (DE1) / 135-165
+    // (Bengle); Decaid also reads anything below that range as off.
+    const value = Math.round(parseFloat(temp));
+    if (value > 0) await persistSharedValue(STEAM_TEMP_LAST_VALUE_KEY, value);
+    return updateWorkflow({ steamSettings: { targetTemperature: value } });
+}
+
+// The heater half of a steam-duration change.
+//
+// Duration 0 is the dashboard's "steam off", but duration alone does not touch
+// the heater -- rest_v1.yml, SteamSettings.duration: "This does not control
+// steam-heater preheating." Only targetTemperature 0 does (de1_controller.dart
+// writes `steamEnabled ? targetTemp : 0` and reads back `targetSteamTemp >= 135`
+// as enabled). So the duration setter carries the heater with it: off at 0, and
+// back to the last enabled temperature when the user re-arms steam.
+//
+// The temperature to come back to is read from the workflow at the moment we
+// switch off -- one GET, only on that transition. With no remembered value the
+// enable path sends no temperature at all rather than inventing one.
+async function steamHeaterFor(duration) {
+    if (duration === 0) {
+        const current = (await getWorkflow().catch(() => null))?.steamSettings?.targetTemperature;
+        if (current > 0) await persistSharedValue(STEAM_TEMP_LAST_VALUE_KEY, current);
+        return { targetTemperature: 0 };
+    }
+    const remembered = await readSharedValue(STEAM_TEMP_LAST_VALUE_KEY);
+    return remembered > 0 ? { targetTemperature: Math.round(remembered) } : {};
 }
 
 // KV first, machine second. PUT /workflow can sit in Decaid's request queue and
@@ -1287,7 +1405,7 @@ export async function setTargetSteamTemp(temp) {
 export async function setTargetSteamDuration(duration) {
     const value = parseFloat(duration);
     await persistSharedValue(STEAM_DURATION_LAST_VALUE_KEY, value);
-    return updateWorkflow({ steamSettings: { duration: value } });
+    return updateWorkflow({ steamSettings: { duration: value, ...(await steamHeaterFor(value)) } });
 }
 
 export async function setTargetSteamFlow(flow) {
@@ -1926,6 +2044,9 @@ export async function uploadFirmware(firmwareFile, onProgress) {
         const byStatus = {
             400: 'Firmware file is empty',
             409: 'A firmware update is already in progress',
+            // Real DE1 images are well under 1 MB; a 413 here almost always means
+            // the wrong file was picked (the picker has no accept filter).
+            413: 'Firmware file is too large (max 16 MB) — check you selected the correct file',
             503: 'No machine connected',
         };
         throw new Error(byStatus[response.status] || `Failed to upload firmware (${response.status})`);
