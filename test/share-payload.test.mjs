@@ -110,3 +110,17 @@ test('a profile too large even without notes reports itself', async () => {
     }));
     assert.equal(await buildShareUrl({ title: 'Huge', steps }), null);
 });
+
+test('a link that unpacks to far too much data is refused, not read', async () => {
+    // The point of the ceiling: deflate tops out around 1000:1, so this is 32 MB
+    // of zeros inside a 32 KB link — and reading it to the end is what takes a
+    // tab down. A real link is under 3 KB.
+    const bomb = await gzip('0'.repeat(32 * 1024 * 1024));
+    assert.ok(bomb.length < 64 * 1024, `bomb should be small, was ${bomb.length}`);
+    await assert.rejects(decodePayload(b64url(bomb)), /unpacks to far more data/);
+});
+
+test('an oversized uncompressed link is refused too', async () => {
+    const huge = Buffer.alloc(5 * 1024 * 1024, 0x20);
+    await assert.rejects(decodePayload(b64url(huge)), /carries far more data/);
+});
