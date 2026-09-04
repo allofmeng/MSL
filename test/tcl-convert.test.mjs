@@ -12,7 +12,7 @@ const script = html.slice(html.indexOf('<script type="module">') + '<script type
                           html.lastIndexOf('</script>'));
 // Everything up to the DOM helpers is pure logic; the rest touches document.
 const logic = script.slice(0, script.indexOf("const $ = (id) =>"));
-const { tclToProfile, encodePayload, decodePayload } = await import(
+const { tclToProfile, encodePayload, decodePayload, readProfileText } = await import(
     'data:text/javascript;base64,' + Buffer.from(logic).toString('base64'));
 
 // One pressure frame, verbatim in de1app's key order — which is not the order
@@ -100,5 +100,26 @@ test('a file with no frames is rejected rather than converted to nothing', () =>
 
 test('a converted profile survives the share link round-trip', async () => {
     const { profile } = tclToProfile(tcl());
-    assert.deepEqual(await decodePayload(await encodePayload(profile)), profile);
+    assert.deepEqual((await decodePayload(await encodePayload(JSON.stringify(profile)))).profile, profile);
+});
+
+// The point of carrying the .tcl rather than the conversion: the reader can be
+// handed the sender's own file back, which is the only thing de1app can read.
+test('a .tcl link hands back the original file, byte for byte', async () => {
+    const source = tcl();
+    const decoded = await decodePayload(await encodePayload(source));
+    assert.equal(decoded.tcl, source);
+    assert.deepEqual(decoded.profile, tclToProfile(source).profile);
+});
+
+test('a payload is read as tcl or json by content, not by extension', () => {
+    const source = tcl();
+    assert.equal(readProfileText(source, 'That file').tcl, source);
+    // Conversion warnings ride along, so a slider-profile caveat still reaches
+    // the reader of a link rather than only whoever uploaded the file.
+    assert.deepEqual(readProfileText(source, 'That file').warnings,
+        tclToProfile(source).warnings);
+
+    const json = JSON.stringify(tclToProfile(source).profile);
+    assert.equal(readProfileText(json, 'That file').tcl, null);
 });

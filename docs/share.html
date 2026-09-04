@@ -56,7 +56,9 @@
     background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 700;
     text-align: center; text-decoration: none; cursor: pointer;
   }
-  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); margin-top: 10px; }
+  /* .btn.ghost, not button.ghost: the .tcl download is an <a>, and two solid
+     buttons stacked read as two equal choices when one is the fallback. */
+  .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); margin-top: 10px; }
   .hint { color: var(--muted); font-size: 14px; margin: 12px 2px 0; }
   .bad { color: var(--bad); }
   /* Always white behind the code, in both themes — a dark-on-dark QR does not
@@ -81,13 +83,6 @@
 <main>
   <div id="error" class="card" hidden><p id="error-text" class="bad" style="margin:0"></p></div>
 
-  <div id="convert" class="card" hidden>
-    <h2>Convert to JSON</h2>
-    <p id="convert-text" class="hint" style="margin:0 2px 14px"></p>
-    <button id="convert-go" class="btn" type="button">Convert to JSON</button>
-    <button id="convert-cancel" class="btn ghost" type="button">Pick another file</button>
-  </div>
-
   <div id="profile" class="card" hidden>
     <h1 id="title"></h1>
     <p id="author" class="by"></p>
@@ -105,8 +100,15 @@
 
   <div id="actions" hidden>
     <a id="download" class="btn" download>Download profile (.json)</a>
+    <!-- Only shown when the profile arrived as a de1app .tcl: it hands back the
+         original file, byte for byte, for anyone still running de1app. -->
+    <a id="download-tcl" class="btn ghost" download hidden>Download original (.tcl)</a>
     <button id="copy" class="btn ghost" type="button">Copy JSON</button>
-    <p class="hint">Import it in your skin: <strong>Profiles → upload</strong>. Everything happens on this
+    <!-- de1app reads the two formats from two different folders and does not
+         look outside them, so naming the path is the difference between a
+         profile that appears in the list and one that silently does not. -->
+    <p id="actions-hint" class="hint">Import it in your skin: <strong>Profiles → upload</strong>. Copying it in by
+       hand instead? A <code>.json</code> profile goes in <code>de1plus/profiles_v2</code>. Everything happens on this
        page, in your browser — nothing is uploaded to a server.</p>
   </div>
 
@@ -1041,7 +1043,28 @@ export async function decodePayload(fragment) {
         throw new Error('This browser cannot read compressed links. Try a newer browser.');
     }
     const text = gzipped ? await gunzip(bytes) : new TextDecoder().decode(bytes);
-    return asProfile(JSON.parse(text), 'That link');
+    return readProfileText(text, 'That link');
+}
+
+// A payload is either v2 JSON or a de1app .tcl file, and the sender's original
+// is what travels — a .tcl is not converted before sharing, so the reader can
+// have the same file back rather than only our reading of it.
+//
+// Sniffed by trying JSON first: a .tcl file cannot parse as JSON (its first
+// token is a bare word), and a JSON profile has no advanced_shot line, so there
+// is no input the two branches could both claim. The tcl converter's own error
+// messages are better than a generic "not a profile", so its throw is left to
+// propagate.
+export function readProfileText(text, what) {
+    let parsed;
+    try {
+        parsed = JSON.parse(text);
+    } catch (e) {
+        if (!(e instanceof SyntaxError)) throw e;
+        const { profile, warnings } = tclToProfile(text);
+        return { profile, warnings, tcl: text };
+    }
+    return { profile: asProfile(parsed, what), warnings: [], tcl: null };
 }
 
 // Accept both the bare profile and a full record ({ profile, metadata }), so
@@ -1066,8 +1089,10 @@ function toBase64Url(bytes) {
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-export async function encodePayload(profile) {
-    const raw = new TextEncoder().encode(JSON.stringify(profile));
+// Takes the text to carry, not the profile object: for a .tcl profile that is
+// the original file, so the link round-trips it unchanged.
+export async function encodePayload(text) {
+    const raw = new TextEncoder().encode(text);
     // Uncompressed is a valid payload too — the decoder sniffs the gzip magic —
     // so a browser without CompressionStream still produces a working link.
     if (typeof CompressionStream !== 'function') return toBase64Url(raw);
@@ -1284,11 +1309,15 @@ function describeTarget(step) {
 }
 
 let downloadUrl = null;
+let tclDownloadUrl = null;
+// The .tcl case rewrites this to explain the two files; a later render of a
+// plain JSON profile has to get the original wording back.
+const DEFAULT_ACTIONS_HINT = $('actions-hint').innerHTML;
 
 // Every card this page can show, cleared back to nothing. Rendering happens
 // more than once now that a file can be picked after a link was decoded.
 function reset() {
-    for (const id of ['error', 'convert', 'profile', 'steps-card', 'actions', 'share', 'upload']) {
+    for (const id of ['error', 'profile', 'steps-card', 'actions', 'share', 'upload']) {
         $(id).hidden = true;
     }
     $('facts').replaceChildren();
@@ -1299,7 +1328,10 @@ function reset() {
     $('share-url').hidden = true;
     $('qr').hidden = true;
     $('copy').textContent = 'Copy JSON';
+    $('download-tcl').hidden = true;
+    $('actions-hint').innerHTML = DEFAULT_ACTIONS_HINT;
     if (downloadUrl) { URL.revokeObjectURL(downloadUrl); downloadUrl = null; }
+    if (tclDownloadUrl) { URL.revokeObjectURL(tclDownloadUrl); tclDownloadUrl = null; }
 }
 
 function showUpload(message) {
@@ -1308,7 +1340,7 @@ function showUpload(message) {
     $('upload').hidden = false;
 }
 
-function render(profile, warnings = []) {
+function render(profile, warnings = [], tcl = null) {
     reset();
     const title = String(profile.title || 'Untitled profile');
     document.title = title;
@@ -1357,10 +1389,30 @@ function render(profile, warnings = []) {
     // Re-serialised from the parsed object, not from the decoded text: what the
     // user downloads is then exactly what this page showed them.
     const json = JSON.stringify(profile, null, 2);
+    const stem = title.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'profile';
     const link = $('download');
     downloadUrl = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
     link.href = downloadUrl;
-    link.download = `${title.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'profile'}.json`;
+    link.download = `${stem}.json`;
+
+    // A .tcl profile is offered both ways rather than converted on the reader's
+    // behalf: JSON for a v2 skin, and the sender's original file for de1app,
+    // which cannot read the JSON at all. The original text is what travelled in
+    // the link, so this is the same bytes the sender picked -- not a
+    // re-serialisation of the converted profile, which could not round-trip.
+    const tclLink = $('download-tcl');
+    if (tcl) {
+        tclDownloadUrl = URL.createObjectURL(new Blob([tcl], { type: 'text/plain' }));
+        tclLink.href = tclDownloadUrl;
+        tclLink.download = `${stem}.tcl`;
+        tclLink.hidden = false;
+        $('actions-hint').innerHTML = 'This came from a de1app <code>.tcl</code> profile. Take the '
+            + '<code>.json</code> for a v2 skin (<strong>Profiles → upload</strong>), or the original '
+            + '<code>.tcl</code> for de1app. Copying either in by hand? The <code>.tcl</code> goes in '
+            + '<code>de1plus/profiles</code> and the <code>.json</code> in <code>de1plus/profiles_v2</code> — '
+            + 'de1app only looks in those two folders. Everything happens on this page, in your browser — '
+            + 'nothing is uploaded to a server.';
+    }
 
     // Fallback for the browsers that ignore `download` on a blob (older iOS).
     // onclick, not addEventListener: a second render must not stack a handler.
@@ -1374,7 +1426,8 @@ function render(profile, warnings = []) {
     };
     $('actions').hidden = false;
     $('upload').hidden = false;
-    renderShare(profile);
+    // The .tcl travels on unchanged, so the next reader gets the same choice.
+    renderShare(profile, tcl ?? json);
 }
 
 const QR_QUIET_ZONE = 4;   // modules of white border — the QR spec's minimum
@@ -1427,10 +1480,10 @@ function drawQr(url) {
 
 // A link the reader can pass on. Best-effort: if the payload cannot be built,
 // the profile is still on screen and still downloadable.
-async function renderShare(profile) {
+async function renderShare(profile, payloadText) {
     let url;
     try {
-        url = `${location.href.split('#')[0]}#${await encodePayload(profile)}`;
+        url = `${location.href.split('#')[0]}#${await encodePayload(payloadText)}`;
     } catch {
         return;
     }
@@ -1460,25 +1513,6 @@ async function renderShare(profile) {
     $('share').hidden = false;
 }
 
-// A .tcl file is not shown straight away: converting it is a real change to the
-// profile (de1app's format is not the machine's), so the reader is told what is
-// about to happen and taps to confirm it.
-function offerConversion(name, text) {
-    reset();
-    $('convert-text').textContent =
-        `${name} is a de1app TCL profile. It has to be converted to a v2 JSON profile before it can be shared or imported.`;
-    $('convert-go').onclick = () => {
-        try {
-            const { profile, warnings } = tclToProfile(text);
-            render(profile, warnings);
-        } catch (e) {
-            showUpload(e.message);
-        }
-    };
-    $('convert-cancel').onclick = () => showUpload();
-    $('convert').hidden = false;
-}
-
 $('file').addEventListener('change', async (event) => {
     const file = event.target.files?.[0];
     // Cleared so picking the same file twice in a row still fires a change.
@@ -1498,16 +1532,16 @@ $('file').addEventListener('change', async (event) => {
         return;
     }
 
-    if (/\.tcl$/i.test(file.name)) {
-        offerConversion(file.name, text);
-        return;
-    }
+    // The extension is not consulted: readProfileText sniffs the content, so a
+    // .tcl saved as .txt still works and a mislabelled file still reports the
+    // right problem. A .tcl is converted for display and for the JSON download,
+    // but the file itself is kept — it is what the link carries and what the
+    // .tcl download hands back.
     try {
-        render(asProfile(JSON.parse(text), 'That file'));
+        const { profile, warnings, tcl } = readProfileText(text, 'That file');
+        render(profile, warnings, tcl);
     } catch (e) {
-        showUpload(e instanceof SyntaxError
-            ? `${file.name} is not valid JSON. If it came from de1app, upload its .tcl file instead.`
-            : e.message);
+        showUpload(e.message);
     }
 });
 
@@ -1515,9 +1549,11 @@ const fragment = location.hash.slice(1).trim();
 if (!fragment) {
     showUpload();
 } else {
-    decodePayload(fragment).then((profile) => render(profile)).catch((e) => {
-        showUpload(e instanceof SyntaxError ? 'That link is damaged — the profile could not be read.' : e.message);
-    });
+    decodePayload(fragment)
+        .then(({ profile, warnings, tcl }) => render(profile, warnings, tcl))
+        .catch((e) => {
+            showUpload(e instanceof SyntaxError ? 'That link is damaged — the profile could not be read.' : e.message);
+        });
 }
 </script>
 </body>

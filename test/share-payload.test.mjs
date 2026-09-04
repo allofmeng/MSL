@@ -28,24 +28,28 @@ const profile = {
 
 test('a gzipped payload round-trips', async () => {
     const decoded = await decodePayload(b64url(await gzip(JSON.stringify(profile))));
-    assert.deepEqual(decoded, profile);
+    assert.deepEqual(decoded.profile, profile);
+    // Only a .tcl payload carries an original file to hand back.
+    assert.equal(decoded.tcl, null);
 });
 
 test('an uncompressed payload also works', async () => {
     // The sender falls back to this when its WebView has no CompressionStream.
     const decoded = await decodePayload(b64url(Buffer.from(JSON.stringify(profile))));
-    assert.deepEqual(decoded, profile);
+    assert.deepEqual(decoded.profile, profile);
 });
 
 test('a full record is unwrapped to the profile', async () => {
     const record = { id: 'abc', profile, metadata: { targetYield: 36 } };
-    assert.deepEqual(await decodePayload(b64url(await gzip(JSON.stringify(record)))), profile);
+    assert.deepEqual((await decodePayload(b64url(await gzip(JSON.stringify(record))))).profile, profile);
 });
 
 test('anything that is not a profile is rejected', async () => {
     await assert.rejects(decodePayload(b64url(await gzip('{"hello":"world"}'))),
         /does not contain an espresso profile/);
-    await assert.rejects(decodePayload(b64url(await gzip('not json'))), SyntaxError);
+    // Not JSON now means "try it as a .tcl", so the complaint comes from the
+    // tcl reader instead of JSON.parse -- and names the thing that is missing.
+    await assert.rejects(decodePayload(b64url(await gzip('not json'))), /no advanced_shot frames/);
 });
 
 test('base64url survives padding and the - _ alphabet', async () => {
@@ -54,7 +58,7 @@ test('base64url survives padding and the - _ alphabet', async () => {
     for (let pad = 0; pad < 3; pad++) {
         const padded = { ...profile, title: 'x'.repeat(10 + pad) };
         const encoded = b64url(await gzip(JSON.stringify(padded)));
-        assert.equal((await decodePayload(encoded)).title, padded.title);
+        assert.equal((await decodePayload(encoded)).profile.title, padded.title);
     }
     const bytes = new Uint8Array([0xfb, 0xff, 0x00]); // encodes to '-' and '_'
     assert.match(Buffer.from(bytes).toString('base64url'), /[-_]/);
@@ -84,7 +88,7 @@ test('a real profile survives the round trip', async () => {
     const { url, notesDropped } = await buildShareUrl(realProfile);
     assert.equal(notesDropped, false);
     assert.ok(url.startsWith(SHARE_BASE_URL + '#'));
-    assert.deepEqual(await decodePayload(url.split('#')[1]), realProfile);
+    assert.deepEqual((await decodePayload(url.split('#')[1])).profile, realProfile);
 });
 
 test('the whole link fits the QR byte budget', async () => {
@@ -98,7 +102,7 @@ test('notes are dropped only when the profile will not otherwise fit', async () 
     const notes = Buffer.from(crypto.getRandomValues(new Uint8Array(6000))).toString('base64');
     const { url, notesDropped } = await buildShareUrl({ ...realProfile, notes });
     assert.equal(notesDropped, true);
-    const decoded = await decodePayload(url.split('#')[1]);
+    const { profile: decoded } = await decodePayload(url.split('#')[1]);
     assert.equal(decoded.notes, undefined);
     assert.equal(decoded.title, realProfile.title, 'everything else is intact');
 });
