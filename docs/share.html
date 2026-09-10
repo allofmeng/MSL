@@ -1406,12 +1406,9 @@ function render(profile, warnings = [], tcl = null) {
         tclLink.href = tclDownloadUrl;
         tclLink.download = `${stem}.tcl`;
         tclLink.hidden = false;
-        $('actions-hint').innerHTML = 'This came from a de1app <code>.tcl</code> profile. Take the '
-            + '<code>.json</code> for a v2 skin (<strong>Profiles → upload</strong>), or the original '
-            + '<code>.tcl</code> for de1app. Copying either in by hand? The <code>.tcl</code> goes in '
-            + '<code>de1plus/profiles</code> and the <code>.json</code> in <code>de1plus/profiles_v2</code> — '
-            + 'de1app only looks in those two folders. Everything happens on this page, in your browser — '
-            + 'nothing is uploaded to a server.';
+        $('actions-hint').innerHTML = '<code>.json</code> for a v2 skin, <code>.tcl</code> for de1app. '
+            + 'Copying by hand: <code>.tcl</code> → <code>de1plus/profiles</code>, '
+            + '<code>.json</code> → <code>de1plus/profiles_v2</code>.';
     }
 
     // Fallback for the browsers that ignore `download` on a blob (older iOS).
