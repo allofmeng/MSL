@@ -1,4 +1,4 @@
-import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket, getDe1AdvancedSettings, updateShotSettingsCache, getDe1Settings, MachineState, getShotIds, getShots, getValueFromStore, verifyVisualizerCredentials, connectScaleDevice, tareScale, connectTimeToReadyWebSocket, connectShotStateWebSocket, sendDeviceCommand, saveScaleDeviceId, getScaleDeviceId, getDeviceWebSocket, initDeviceWebSocketWithCallback, connectDeviceWebSocket, connectDisplayWebSocket, restoreBrightnessFromStorage, getMachineInfo, getMachineState, setMachineState, getReaSettings, getAppInfo } from './api.js';
+import { connectWebSocket, getWorkflow, connectScaleWebSocket, ensureGatewayModeTracking, reconnectingWebSocket, getDevices, reconnectDevice, scanForDevices,connectShotSettingsWebSocket, getDe1AdvancedSettings, updateShotSettingsCache, getDe1Settings, MachineState, getShotIds, getShots, getValueFromStore, verifyVisualizerCredentials, connectScaleDevice, tareScale, connectTimeToReadyWebSocket, connectShotStateWebSocket, sendDeviceCommand, saveScaleDeviceId, getScaleDeviceId, getDeviceWebSocket, initDeviceWebSocketWithCallback, connectDeviceWebSocket, connectDisplayWebSocket, restoreBrightnessFromStorage, getMachineInfo, getMachineState, setMachineState, getReaSettings, getAppInfo, getSensors, connectSensorSnapshotWebSocket, closeSensorSnapshotWebSocket } from './api.js';
 import { initScaling } from './scaling.js';
 import * as chart from './chart.js';
 import * as ui from './ui.js';
@@ -15,7 +15,7 @@ import { deriveScreensaverAction, isMachineAsleep, isScreensaverSuppressed } fro
 import { createMachineLinkWatcher, machineFromDevicesPayload } from './machine-link.js';
 import { setMachineModel, isBengleMachine } from './machine.js';
 import { classifyStopReason, canonicalStopReason, STOP_TARGET_WEIGHT, STOP_TARGET_VOLUME, STOP_PROFILE_ENDED } from './stop-reason.js';
-import { resolveMilkProbePresence } from './steam-mode.js';
+import { resolveMilkProbePresence, MILK_PROBE_ABSENT_AFTER_MS, selectMilkProbeSensorId } from './steam-mode.js';
 import { isCupWarmerOn, readCupWarmerTarget, resolvePrewarm, getCupWarmerState, setCupWarmerState, patchCupWarmerState, invalidateCupWarmerState, onCupWarmerStateChange, CUP_WARMER_TARGET_KEY } from './cup-warmer.js';
 import { initNumpadModal, attachToNumericInputs, openModal, shouldUseNumpad } from './numpad-modal.js';
 import { initTimePicker } from './time-picker-modal.js';
@@ -31,6 +31,12 @@ window.handleScaleData = handleScaleData;
 window.loadInitialData = loadInitialData;
 window.resetDataTimeout = resetDataTimeout;
 window.onScaleDisconnect = onScaleDisconnect;
+
+// Array.prototype.at() is missing on the older Android WebViews some DE1
+// tablets ship with (pre-Chromium 92), so read the last element by index.
+function lastOf(arr) {
+    return arr && arr.length ? arr[arr.length - 1] : undefined;
+}
 window.onScaleReconnect = onScaleReconnect;
 
 function initClockTicker() {
@@ -94,7 +100,7 @@ function initMobileValueInputs() {
                         const tempC = fromDisplayTemp(parseFloat(newVal));
                         el.textContent = type === 'temperature' ? formatTemp(tempC, 0) :
                                         type === 'grind' ? newVal :
-                                        type === 'steam-duration' ? `${newVal}s` :
+                                        type === 'steam-duration' ? window.app.ui.formatSteamDuration((newVal === '' || isNaN(parseFloat(newVal))) ? 0 : parseFloat(newVal)) :
                                         type === 'steam-flow' ? newVal :
                                         type === 'flush' ? `${newVal}s` :
                                         type === 'hot-water-vol' ? `${newVal}ml` :
@@ -177,6 +183,14 @@ function formatStateString(text) {
 
 let shotStartTime = null;
 let shotEndedAt = null;
+// Bumped every time a new shot actually starts. shotStartTime itself can't
+// serve as a "same shot?" token: it's nulled by the machine-snapshot feed
+// (leaves ESPRESSO state) independently of the shotState feed's 'stop', so a
+// weight-stop captured while it happened to already be null, followed by a
+// second shot that also starts and ends before a slow 'finalize' arrives,
+// would read as null === null and misidentify the shots as the same one.
+// A counter that only ever increases has no such collision.
+let shotGeneration = 0;
 const SHOT_RESTART_COOLDOWN_MS = 5000;
 let dataTimeout;
 let de1DeviceId = null;
@@ -562,9 +576,17 @@ function applyScreensaverAction(state) {
 }
 
 // ── Milk probe (Bengle) ──────────────────────────────────────────────────────
-// Fed one snapshot milkTemperature per frame (contract: 0/absent = no probe or
-// no reading). Presence survives brief 0-glitches and drops only after a
-// sustained absence (resolveMilkProbePresence, steam-mode.js). The main-screen
+// A Bengle's onboard milk probe is NOT part of the machine snapshot: Decaid's
+// MachineSnapshot has no milkTemperature field (confirmed against its
+// machine.dart and rest_v1.yml's MachineSnapshot schema — neither has ever had
+// one), so the value fed here was always undefined and the probe read as
+// absent forever. The live path is the generic sensor bus: GET /api/v1/sensors
+// lists the probe (auto-registered by BengleProbeBridge while physically
+// attached) and ws/v1/sensors/<id>/snapshot streams its readings.
+// pollMilkProbeSensor() below owns discovery/(re)subscription; each resolved
+// reading is folded here the same way a per-frame value would be, so presence
+// survives brief drop-outs and only clears after a sustained absence
+// (resolveMilkProbePresence, steam-mode.js). The main-screen
 // steam tile consumes this through ui.setMilkProbePresent (Milk-mode gating +
 // probe-loss un-arm); the settings steam page through window.app.getMilkProbe
 // (render-time state) and window.onMilkProbeUpdate (live ticks + presence flips).
@@ -582,6 +604,58 @@ function updateMilkProbeFromSnapshot(tempC) {
     window.onMilkProbeUpdate?.(milkProbeState.present, latestMilkTemp);
 }
 window.app.getMilkProbe = () => ({ present: milkProbeState.present, temperature: latestMilkTemp });
+
+// Sensor-bus feed for the milk probe (see comment above). currentMilkSensorId
+// tracks which sensor id the snapshot socket is bound to so a change (or
+// disappearance) on the next poll re-subscribes instead of leaking a socket.
+// latestSensorReadingAtMs marks when a reading last actually arrived; a
+// reading older than MILK_PROBE_ABSENT_AFTER_MS counts as no reading this
+// tick, exactly as an absent snapshot field would.
+let currentMilkSensorId = null;
+let latestSensorTemp = null;
+let latestSensorReadingAtMs = null;
+
+function handleMilkSensorSnapshot(frame) {
+    const t = frame?.temperature;
+    if (typeof t === 'number' && isFinite(t)) {
+        latestSensorTemp = t;
+        latestSensorReadingAtMs = Date.now();
+    }
+}
+
+const MILK_PROBE_SENSOR_POLL_MS = 3000; // comfortably under MILK_PROBE_ABSENT_AFTER_MS (5s)
+
+async function pollMilkProbeSensor() {
+    let sensors;
+    try {
+        sensors = await getSensors();
+    } catch (error) {
+        logger.warn('Milk-probe sensor poll failed:', error);
+        return;
+    }
+    const id = selectMilkProbeSensorId(sensors);
+    if (id === currentMilkSensorId) return;
+    currentMilkSensorId = id;
+    latestSensorTemp = null;
+    latestSensorReadingAtMs = null;
+    if (id) {
+        connectSensorSnapshotWebSocket(id, handleMilkSensorSnapshot);
+    } else {
+        closeSensorSnapshotWebSocket();
+    }
+}
+
+function initMilkProbeSensorPolling() {
+    pollMilkProbeSensor();
+    setInterval(pollMilkProbeSensor, MILK_PROBE_SENSOR_POLL_MS);
+}
+
+/** Reading to feed updateMilkProbeFromSnapshot this machine-snapshot tick. */
+function currentMilkProbeReading() {
+    if (latestSensorReadingAtMs === null) return undefined;
+    if (Date.now() - latestSensorReadingAtMs >= MILK_PROBE_ABSENT_AFTER_MS) return undefined;
+    return latestSensorTemp;
+}
 
 function handleData(data) {
     if (!data?.state) {
@@ -772,7 +846,7 @@ function handleData(data) {
     });
     ui.updateSleepButton(state);
     ui.updateTemperatures({ mix: data.mixTemperature, group: data.groupTemperature, steam: data.steamTemperature });
-    updateMilkProbeFromSnapshot(data.milkTemperature);
+    updateMilkProbeFromSnapshot(currentMilkProbeReading());
 
     // Update Chart and Shot Data Table
     if (MachineState.ESPRESSO.includes(state)) {
@@ -784,6 +858,7 @@ function handleData(data) {
                     return;
                 }
                 shotStartTime = new Date(data.timestamp);
+                shotGeneration++;
                 // Feed frames during this shot re-assert it; stays false in
                 // gateway mode so the fallback heuristics run at shot end.
                 seqTrackedShot = false;
@@ -807,9 +882,22 @@ function handleData(data) {
     } else {
         if (shotStartTime) {
             shotEndedAt = Date.now();
-            chart.finalizeLiveChart();
+            // Clear before finalizing, and guard the finalize itself. A throw in
+            // there used to unwind past the reset and strand shotStartTime: every
+            // later idle frame retried the same failing finalize, and -- because
+            // the next shot's reset hangs off `if (!shotStartTime)` -- that shot
+            // appended to the previous shot's arrays instead of starting clean
+            // (upstream issue #73: a 3s flush reported 72995s, still measuring
+            // from a shot 20 hours earlier). The catch also keeps the blame
+            // local: uncaught, this surfaced as "Error parsing WebSocket
+            // message", pointing at the JSON parser rather than the chart.
+            shotStartTime = null;
+            try {
+                chart.finalizeLiveChart();
+            } catch (error) {
+                logger.error('finalizeLiveChart failed; shot ended without final labels:', error);
+            }
         }
-        shotStartTime = null;
     }
 }
 
@@ -985,8 +1073,8 @@ let seqStopToastShown = false; // a stop/abort/terminal toast fired for this sho
 function fallbackStopToast() {
     const finishedShot = shotData.getCurrentShot();
     const totalS = shotData.getTotalTime();
-    const finalWeight = finishedShot.finalWeight ?? finishedShot.weights?.at(-1) ?? latestScaleWeight;
-    const finalVolume = finishedShot.volumes?.at(-1) ?? 0;
+    const finalWeight = finishedShot.finalWeight ?? lastOf(finishedShot.weights) ?? latestScaleWeight;
+    const finalVolume = lastOf(finishedShot.volumes) ?? 0;
     const reason = classifyStopReason({
         totalS, finalWeight, finalVolume, isScaleConnected, ...getActiveShotTargets(),
     });
@@ -1084,15 +1172,27 @@ function shotStateStopMessage(decision, machineHasAutonomousSAW) {
     const { targetWeight, profileSeconds } = getActiveShotTargets();
     const totalS = shotData.getTotalTime();
     const weight = parseFloat(decision.data?.projectedWeight ?? latestScaleWeight);
-    const volume = shotData.getCurrentShot()?.volumes?.at(-1) ?? 0;
+    const volume = lastOf(shotData.getCurrentShot()?.volumes) ?? 0;
 
     // Normalise the one reason whose meaning is hardware-dependent BEFORE
     // rendering, so the same shot reads the same on a Bengle and a plain DE1.
     const reason = canonicalStopReason(decision.reason, {
         machineHasAutonomousSAW, isScaleConnected, weight, targetWeight, totalS, profileSeconds,
     });
-    return formatStopReason(reason, { weight, volume, totalS });
+    return { text: formatStopReason(reason, { weight, volume, totalS }), reason };
 }
+
+// Set once a weight-stop toast has fired for the shot currently settling, so
+// the 'finalize' branch below knows whether a corrected weight is worth
+// fetching. projectedWeight at 'stop' is a live estimate; annotations.actualYield
+// only exists a few seconds later, once the server has measured the decaying
+// post-stop flow and clamped for a removed cup -- 'finalize' is exactly that
+// "settling closed" moment, so it's the first point the real number exists.
+// `gen` is the shotGeneration at the moment of the stop: currentShot
+// (shotData.js) has no id of its own, so this stands in for one -- if a new
+// shot has started by the time 'finalize' arrives, shotGeneration has moved on
+// and the guard below skips writing a stale shot's yield onto it.
+let seqWeightStop = null; // { shotId, gen } | null
 
 function handleShotStateEvent(frame) {
     if (!frame?.event) return;
@@ -1129,17 +1229,36 @@ function handleShotStateEvent(frame) {
                 : (d.details || `${getTranslation('Shot Stopped')}: ${shotData.getTotalTime().toFixed(1)}s`),
                 4000, 'error');
             break;
-        case 'stop':
-            ui.showToast(shotStateStopMessage(d, frame.machineHasAutonomousSAW), 6000, 'info');
+        case 'stop': {
+            const { text, reason } = shotStateStopMessage(d, frame.machineHasAutonomousSAW);
+            ui.showToast(text, 6000, 'info');
+            seqWeightStop = reason === STOP_TARGET_WEIGHT ? { shotId: frame.shotId, gen: shotGeneration } : null;
             seqRefreshHistory(frame.shotId);
             break;
+        }
         case 'terminal':
             // Abnormal end (error / disconnect).
             ui.showToast(d.details || `${getTranslation('Shot Stopped')}: ${shotData.getTotalTime().toFixed(1)}s`, 6000, 'error');
+            seqWeightStop = null;
             seqRefreshHistory(frame.shotId);
             break;
         case 'finalize':
-            // Post-stop settling closed — the shot record is persisted.
+            // Post-stop settling closed — the shot record is persisted, so
+            // annotations.actualYield now exists if the shot was weight-stopped.
+            // Correct the estimate the 'stop' toast showed, and the shot-total
+            // card, with the real settled figure.
+            if (frame.shotId && seqWeightStop?.shotId === frame.shotId) {
+                const capturedGen = seqWeightStop.gen;
+                seqWeightStop = null;
+                getShots({ ids: frame.shotId, limit: 1 }).then(({ items } = {}) => {
+                    const actualYield = items?.[0]?.annotations?.actualYield;
+                    if (!Number.isFinite(actualYield)) return;
+                    ui.showToast(stopReasonText('Stopped by weight:', `${actualYield.toFixed(1)}g`), 4000, 'info');
+                    // Only stamp the card if this is still the same shot -- a new
+                    // shot may have started while the fetch was in flight.
+                    if (shotGeneration === capturedGen) shotData.setFinalWeight(actualYield);
+                }).catch(error => logger.warn('Could not fetch actualYield for finalized shot:', error));
+            }
             seqRefreshHistory(frame.shotId);
             break;
         // advance frames: chart already tracks step changes via profileFrame
@@ -1774,6 +1893,7 @@ async function initMainPageOnce() {
         setTimeout(() => { restoreBrightnessFromStorage(); }, 1500);
         ensureGatewayModeTracking();
         resetDataTimeout();
+        initMilkProbeSensorPolling();
         connectShotSettingsWebSocket(handleShotSettingsData);
         getDe1AdvancedSettings();
         getDe1Settings();
@@ -1927,7 +2047,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // swallowed: the modals still function unstyled, and nothing else waits
         // on this.
         requestAnimationFrame(() => requestAnimationFrame(() => {
-            ['numpad-modal.css', 'time-picker-modal.css', 'context-menu.css']
+            // context-menu.css is not here: context-menu.js loads its own, so a
+            // boot that never reaches this line cannot leave the menu unstyled.
+            ['numpad-modal.css', 'time-picker-modal.css']
                 .forEach(file => loadStyle(`src/css/${file}`).catch(() => {}));
         }));
         initNumpadModal();

@@ -1,9 +1,30 @@
+import { loadStyle } from './vendor-loader.js';
+import { shouldUseBottomSheet } from './context-menu-layout.js';
+
 const MENU_ID = 'app-context-menu';
 const BACKDROP_ID = 'app-context-menu-backdrop';
 const MARGIN = 8;
 const VIEWPORT_PADDING = 12;
 
 let activeMenu = null;
+
+// The menu owns its stylesheet. It used to ride along on a list in app.js's
+// DOMContentLoaded handler, behind a double rAF and a `.catch(() => {})` — so on
+// any boot that did not reach that line the menu rendered with NO css, and an
+// unstyled block appended to <body> is exactly as wide as the screen. Same
+// symptom as a full-bleed bottom sheet, different cause. Module-relative so it
+// resolves whatever path the document was served from.
+const STYLESHEET_URL = new URL('../css/context-menu.css', import.meta.url).href;
+let stylesReady = null;
+
+function ensureStyles() {
+    if (!stylesReady) stylesReady = loadStyle(STYLESHEET_URL).catch(() => {});
+    return stylesReady;
+}
+
+// Start the fetch as soon as anything imports this module, so the first menu
+// open is not waiting on the network.
+ensureStyles();
 
 function ensureRoot() {
     let backdrop = document.getElementById(BACKDROP_ID);
@@ -181,14 +202,20 @@ export function openContextMenu(anchorEl, items, options = {}) {
     // and under the finger. Dock it to the bottom as a sheet instead, with its
     // own scroll (see .context-menu--bottom-sheet).
     const actionCount = items.filter(item => !item.divider).length;
-    const bottomSheet = window.matchMedia?.('(pointer: coarse)').matches && actionCount >= 4;
+    // Coarse pointer alone is not enough: the Decent tablet is a coarse ~1920px
+    // screen, where the sheet reads as a full-width banner (context-menu-layout.js).
+    const bottomSheet = shouldUseBottomSheet(
+        actionCount,
+        !!window.matchMedia?.('(pointer: coarse)').matches,
+        window.innerWidth
+    );
     menu.classList.toggle('context-menu--bottom-sheet', bottomSheet);
 
     menu.style.visibility = 'hidden';
     menu.classList.add('context-menu--open');
     backdrop.classList.add('context-menu-backdrop--open');
 
-    requestAnimationFrame(() => {
+    ensureStyles().then(() => requestAnimationFrame(() => {
         if (bottomSheet) {
             // The sheet is placed entirely by CSS — clear anything a previous
             // anchored open left behind, or the inline left/top wins over it.
@@ -202,7 +229,7 @@ export function openContextMenu(anchorEl, items, options = {}) {
         menu.style.visibility = '';
         const first = focusableItems(menu)[0];
         if (first) first.focus();
-    });
+    }));
 
     // Dismiss on click (fires after the full touch sequence ends). Listening on
     // touchstart with preventDefault left the in-progress touch bound to the

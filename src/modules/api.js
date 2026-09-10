@@ -37,8 +37,19 @@ export const MachineState = {
 
 export let reconnectingWebSocket = null; // Exporting for app.js access
 export let currentMachineState = null;
+// Last full machine-snapshot frame, for code outside the socket handler that
+// needs a live reading (the descaling gate wants steamTemperature). Null until
+// the first frame arrives.
+let lastMachineSnapshot = null;
+
+/** The most recent machine snapshot frame, or null if none has arrived yet. */
+export function getLastMachineSnapshot() {
+    return lastMachineSnapshot;
+}
 let previousMachineState = null;
 let scaleWebSocket = null;
+let sensorSnapshotWebSocket = null;
+let sensorSnapshotWebSocketId = null; // sensor `id` the open socket is bound to
 let displayWebSocket = null;
 let displayWebSocketReady = false;
 // Last display command that could not be sent; flushed by the socket's onopen.
@@ -107,6 +118,29 @@ export function updateShotSettingsCache(newSettings) {
     if (newSettings) {
         currentShotSettings = { ...currentShotSettings, ...newSettings };
         logger.debug('Shot settings cache updated:', currentShotSettings);
+    }
+}
+
+// ── Sensors (Bengle milk probe et al.) ──────────────────────────────────────
+// GET /api/v1/sensors lists devices currently registered on the sensor bus
+// (e.g. a Bengle's onboard milk probe, auto-registered by Decaid's
+// BengleProbeBridge while it is physically attached). Each entry is
+// `{ id, info: { name, vendor, data: DataChannel[], commands } }` — note the
+// wire key is `info.data`, not `info.dataChannels` as rest_v1.yml's
+// SensorManifest schema states; the schema is stale here, confirmed against
+// Decaid's SensorInfo.toJson(). Returns [] (not a throw) on any failure so
+// callers can poll this without special-casing errors.
+export async function getSensors() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/sensors`);
+        if (!response.ok) {
+            logger.warn(`Failed to get sensors (status ${response.status})`);
+            return [];
+        }
+        return await response.json();
+    } catch (error) {
+        logger.warn('Error fetching sensors:', error);
+        return [];
     }
 }
 
@@ -344,6 +378,7 @@ export function connectWebSocket(onData, onReconnect) {
             
             previousMachineState = currentMachineState;
             currentMachineState = stateValue;
+            lastMachineSnapshot = data;
             // logger.info('Current state after assignment:', currentMachineState);
             
             // Brightness follows the machine's confirmed state. See
@@ -381,6 +416,16 @@ export function connectWebSocket(onData, onReconnect) {
     };
 
     reconnectingWebSocket.onreconnect = null;
+}
+
+// Open the machine snapshot socket for its cached side effects alone
+// (getLastMachineSnapshot / currentMachineState), for pages that need a live
+// reading but do not own the feed. A no-op when app.js has already connected
+// it: this must never replace a live handler, only fill in for a boot that
+// went straight to a sub-page and so skipped initMainPageOnce.
+export function ensureSnapshotSocket() {
+    if (reconnectingWebSocket) return;
+    connectWebSocket(() => {});
 }
 
 export function connectScaleWebSocket(onData, onReconnect, onDisconnect) {
@@ -429,6 +474,51 @@ export function connectScaleWebSocket(onData, onReconnect, onDisconnect) {
     };
 
     scaleWebSocket.onreconnect = null;
+}
+
+// ── Generic per-sensor snapshot (Bengle milk probe today) ───────────────────
+// ws/v1/sensors/<id>/snapshot streams whatever the sensor's own `data` map
+// looks like — for the Bengle milk probe that is `{ timestamp, temperature }`
+// (BengleMilkProbe in reaprime), not the `{ id, values }` SensorSnapshot shape
+// rest_v1.yml documents. The id is only valid while Decaid has that sensor
+// registered (see getSensors()); a probe that later detaches is not reflected
+// by the socket closing, only by no further frames arriving, so callers must
+// re-poll getSensors() and treat a stale/missing id as absence themselves.
+export function connectSensorSnapshotWebSocket(sensorId, onData) {
+    if (sensorSnapshotWebSocket && sensorSnapshotWebSocketId === sensorId) {
+        return; // already bound to this sensor
+    }
+    if (sensorSnapshotWebSocket) {
+        sensorSnapshotWebSocket.close();
+    }
+
+    sensorSnapshotWebSocketId = sensorId;
+    sensorSnapshotWebSocket = new ReconnectingWebSocket(`${WS_PROTOCOL}//${reaHostname}:${REA_PORT}/ws/v1/sensors/${sensorId}/snapshot`, [], {
+        reconnectInterval: 3000,
+    });
+
+    sensorSnapshotWebSocket.onmessage = (event) => {
+        try {
+            onData(JSON.parse(event.data));
+        } catch (error) {
+            logger.error('Error parsing sensor snapshot WebSocket message:', error);
+        }
+    };
+
+    sensorSnapshotWebSocket.onerror = (error) => {
+        logger.error('Sensor snapshot WebSocket error:', error);
+    };
+
+    sensorSnapshotWebSocket.onreconnect = null;
+}
+
+/** Close and clear the sensor snapshot socket (no matching sensor found). */
+export function closeSensorSnapshotWebSocket() {
+    if (sensorSnapshotWebSocket) {
+        sensorSnapshotWebSocket.close();
+    }
+    sensorSnapshotWebSocket = null;
+    sensorSnapshotWebSocketId = null;
 }
 
 export function connectShotSettingsWebSocket(onData) {
@@ -1406,6 +1496,15 @@ export async function setTargetSteamDuration(duration) {
     const value = parseFloat(duration);
     await persistSharedValue(STEAM_DURATION_LAST_VALUE_KEY, value);
     return updateWorkflow({ steamSettings: { duration: value, ...(await steamHeaterFor(value)) } });
+}
+
+// Steam-heater switch for procedures that must not run against a hot steam
+// boiler (descaling). Same remember/restore rule as setTargetSteamDuration:
+// switching off stores the current target in KV, switching back on returns to
+// it — so even a WebView reload between the two cannot lose the temperature.
+// The duration is deliberately untouched, so the user's steam time survives.
+export async function setSteamHeaterEnabled(enabled) {
+    return updateWorkflow({ steamSettings: await steamHeaterFor(enabled ? 1 : 0) });
 }
 
 export async function setTargetSteamFlow(flow) {

@@ -264,7 +264,10 @@ function makeEditable(element, onCommit) {
         if (element.parentNode.querySelector('input')) return;
 
         let isProcessed = false;
-        const currentValue = parseFloat(element.textContent);
+        // `|| 0` because a tile may show a word rather than a number: steam
+        // duration reads "off" at 0 (formatSteamDuration), and seeding the input
+        // with NaN leaves it blank.
+        const currentValue = parseFloat(element.textContent) || 0;
         const input = document.createElement('input');
         input.type = 'number';
         input.value = currentValue;
@@ -674,6 +677,17 @@ export function setMilkProbePresent(present) {
     updateSteamPresetDisplay();
 }
 
+// 0s reads as "off" — duration 0 already sends the steam-off command
+// (steamHeaterFor in api.js zeroes targetTemperature alongside it), so the tile
+// should say so rather than show a number that looks like a very short steam
+// time.
+export function formatSteamDuration(v) {
+    // Lowercase 'off' (not 'OFF') is the exact CSV key: the sheet carries both
+    // and case-insensitive lookup resolves to whichever parses last
+    // (i18n-parser.js keyIndex), which is not this one.
+    return v === 0 ? getTranslation('off') : `${v}s`;
+}
+
 export function updateSteamDisplay(data) {
     const durationEl = document.getElementById('steam-duration-value');
     const flowEl = document.getElementById('steam-flow-value');
@@ -715,7 +729,7 @@ export function updateSteamDisplay(data) {
         modeTimeEl.className = INACTIVE;
         modeFlowEl.className = INACTIVE;
     } else if (steamMode === 'time') {
-        durationEl.textContent = `${currentSteamDuration}s`;
+        durationEl.textContent = formatSteamDuration(currentSteamDuration);
         durationEl.classList.remove('text-[20px]');
         durationEl.classList.add('text-[26px]', 'font-bold', 'text-[var(--text-primary)]');
         flowEl.classList.remove('text-[26px]', 'font-bold');
@@ -723,7 +737,7 @@ export function updateSteamDisplay(data) {
         modeTimeEl.className = ACTIVE;
         modeFlowEl.className = INACTIVE;
     } else { // flow mode
-        durationEl.textContent = `${currentSteamDuration}s`;
+        durationEl.textContent = formatSteamDuration(currentSteamDuration);
         flowEl.classList.remove('text-[20px]');
         flowEl.classList.add('text-[26px]', 'font-bold', 'text-[var(--text-primary)]');
         durationEl.classList.remove('text-[26px]', 'font-bold');

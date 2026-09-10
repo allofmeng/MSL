@@ -34,8 +34,15 @@ test('long press never cancels touchstart, so the strip can still pan', () => {
 
 test('tablet menus use larger rows, bottom sheets and focus restoration', () => {
     const menu = read('src/modules/context-menu.js');
+    const layout = read('src/modules/context-menu-layout.js');
     const css = read('src/css/context-menu.css');
-    assert.match(menu, /actionCount >= 4/);
+    // The sheet is now phone-only: it is pinned left:12px/right:12px with
+    // max-width:none, which spanned the full width of the coarse-pointer,
+    // ~1920px Decent tablet. The action threshold moved to the DOM-free policy
+    // module and gained a viewport-width bound alongside it.
+    assert.match(layout, /BOTTOM_SHEET_MIN_ACTIONS = 4/);
+    assert.match(layout, /BOTTOM_SHEET_MAX_WIDTH = \d+/);
+    assert.match(menu, /shouldUseBottomSheet\(/);
     assert.match(menu, /anchor\.focus\(\{ preventScroll: true \}\)/);
     assert.match(css, /@media \(pointer: coarse\)[\s\S]*min-height: 60px/);
     assert.match(css, /context-menu--bottom-sheet/);

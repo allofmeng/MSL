@@ -1770,6 +1770,23 @@ async function saveProfile() {
             return;
         }
 
+        // POST /profiles is content-addressed (ProfileController.create): if the
+        // execution hash we submit already matches a stored record -- most often
+        // the very default/profile we're forking away from, because our
+        // executionChanged() diff is a raw JSON compare over a wider field set
+        // than the server's hash -- it silently hands back that EXISTING record
+        // (its own id, its own title) instead of minting ours, and still answers
+        // 201. The only reliable tell from here is comparing what we sent
+        // against what we got back: the returned id landing on the record we are
+        // forking away from, or the returned title silently not being ours.
+        const sentTitle = finalTitle;
+        const forkDeduped = (record, avoidId) => {
+            if (!record) return true;
+            if (avoidId && record.id === avoidId) return true;
+            return (record.profile?.title || '') !== sentTitle;
+        };
+        const dedupToast = () => showToast(t('This change matches an existing profile — nothing new was saved'), 4000, 'info');
+
         // Save routing (REA versioning model):
         //  - default + execution change → POST fork (PUT would be rejected); the
         //    default stays as the parent/reset point.
@@ -1781,8 +1798,10 @@ async function saveProfile() {
         let saved;
         if (src?.isDefault && execChanged) {
             saved = await uploadProfileWithParent(editorState.profile, src.id);
+            if (forkDeduped(saved, src.id)) { dedupToast(); return; }
         } else if (!src || (titleChanged && execChanged)) {
             saved = await uploadProfileWithParent(editorState.profile, src?.id ?? null);
+            if (forkDeduped(saved, src?.id ?? null)) { dedupToast(); return; }
         } else if (execChanged) {
             // Overwrite of an existing user profile: keep the prior version as a
             // hidden, restorable snapshot instead of letting the server drop it on
@@ -1791,6 +1810,11 @@ async function saveProfile() {
             // Upload first, hide second: hiding up front left the user with no
             // visible profile at all if the upload then failed.
             saved = await uploadProfileWithParent(editorState.profile, src.id);
+            // A dedup here would return src itself -- flipping it visible and
+            // then straight back to hidden a few lines down, erasing the user's
+            // only copy of the profile they thought they were editing. Bail
+            // before either visibility call runs.
+            if (forkDeduped(saved, src.id)) { dedupToast(); return; }
             // The server dedups by content hash, so an edit that lands back on an
             // existing (hidden) profile returns that record still hidden.
             if (saved.visibility !== 'visible') {

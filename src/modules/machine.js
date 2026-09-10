@@ -35,3 +35,21 @@ export function getMachineModel() {
 export function isBengleMachine() {
     return isBengleModel(machineModel);
 }
+
+// Descaling pushes descaler through the steam path, so it must not run against
+// a hot steam boiler (Decent's descaling instructions). This is the threshold
+// the settings page gates the Start button on.
+export const DESCALE_STEAM_MAX_C = 60;
+
+/**
+ * Whether the steam boiler is cool enough to descale.
+ *
+ * A missing reading is NOT "still hot": some machines never report a steam
+ * temperature, and blocking on a number that will never arrive would make
+ * descaling impossible. Unknown proceeds.
+ * @param {number|null|undefined} steamTemperature  degrees C from the snapshot
+ */
+export function steamCoolEnoughToDescale(steamTemperature) {
+    return typeof steamTemperature !== 'number' || !Number.isFinite(steamTemperature)
+        || steamTemperature <= DESCALE_STEAM_MAX_C;
+}

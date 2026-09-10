@@ -1,4 +1,4 @@
-import {  getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, cancelFirmwareUpdate, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY } from '../modules/api.js';
+import {  getLastMachineSnapshot, ensureSnapshotSocket, setSteamHeaterEnabled, getReaSettings, getDe1Settings, getDe1AdvancedSettings, setReaSettings, setDe1Settings, setDe1AdvancedSettings, resetDe1Settings, setMachineState, connectScaleDevice, connectDeviceWebSocket, sendDeviceCommand, awaitDeviceConnectResult, dimDisplay, restoreDisplay, isBlackScreenSaver, setBlackScreenSaver as apiSetBlackScreenSaver, rememberBrightness, getLastDisplayState, currentMachineState, signalHeartbeat, MachineState, getDeviceWebSocket, initDeviceWebSocketWithCallback, saveScaleDeviceId, getScaleDeviceId, connectDisplayWebSocket, sendDisplayCommand, connectUpdateWebSocket, sendUpdateCommand, enableWakeLock, disableWakeLock, isWakeLockEnabled, getPresenceSettings, setPresenceSettings, getPresenceSchedules, createPresenceSchedule, updatePresenceSchedule, deletePresenceSchedule, getAppInfo, getMachineInfo, getWorkflow, updateWorkflow, getAllSkins, getDefaultSkin, setDefaultSkin, updateSkins, stopWebuiServer, startWebuiServer, uploadFirmware, cancelFirmwareUpdate, setWaterLevels, API_BASE_URL, listWifiScales, addWifiScale, removeWifiScale, forgetDevice, getLedStrip, setLedStrip, commitLedStrip, resetLedStrip, previewLedStrip, clearLedStripPreview, getCupWarmer, setCupWarmer, setCupWarmerPrewarm, calibrateScale, tareScale, connectScaleWebSocket, setFirmwareFlashInFlight, persistSharedValue, MILK_STOP_LAST_VALUE_KEY, STEAM_DURATION_LAST_VALUE_KEY, STEAM_FLOW_LAST_VALUE_KEY, STEAM_TEMP_LAST_VALUE_KEY, HOT_WATER_VOLUME_LAST_VALUE_KEY, HOT_WATER_TEMP_LAST_VALUE_KEY } from '../modules/api.js';
 import * as ui from '../modules/ui.js';
 import { initScaling } from '../modules/scaling.js';
 import { loadIro } from '../modules/vendor-loader.js';
@@ -6,7 +6,7 @@ import { getSupportedLanguages, getCurrentLanguage, setLanguage, translatePage, 
 import { getTempUnit, setTempUnit, formatTemp, fromDisplayTemp, boundToDisplay } from '../modules/units.js';
 import { loadPage } from '../modules/router.js'; // Singular and correctly formatted import
 import { logger } from '../modules/logger.js';
-import { isBengleMachine, setMachineModel } from '../modules/machine.js';
+import { isBengleMachine, setMachineModel, steamCoolEnoughToDescale, DESCALE_STEAM_MAX_C } from '../modules/machine.js';
 import { setScreensaverSuppressed, isMachineAsleep } from '../modules/screensaver-policy.js';
 import { isFirmwareCancellationError } from '../modules/firmware-progress.js';
 import { resolveSteamStopMode, applyMilkProbeGate } from '../modules/steam-mode.js';
@@ -4619,15 +4619,21 @@ export function renderMainDescalingSettings() {
                         <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
                             <p class="leading-[1.2]" data-i18n-key="Descaling cycle">Descaling cycle</p>
                         </div>
-                        <button class="bg-[#385a92] h-[72px] px-[48px] rounded-[72px] text-white text-[24px] font-bold"
+                        <button id="descale-start" class="bg-[#385a92] h-[72px] px-[48px] rounded-[72px] text-white text-[24px] font-bold"
                                 onclick="window.startDescaling()" data-i18n-key="Start">
                             Start
+                        </button>
+                    </div>
+                    <div id="descale-cooldown" class="content-stretch flex items-center justify-between relative w-full" style="display:none">
+                        <p id="descale-cooldown-status" class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic text-[var(--text-primary)] text-[24px]"></p>
+                        <button class="${CAL_SECONDARY_BTN}" onclick="window.cancelDescaleCooldown()" data-i18n-key="Cancel">
+                            Cancel
                         </button>
                     </div>
                     <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Run a descaling cycle to remove mineral buildup">
                         Run a descaling cycle to remove mineral buildup
                     </p>
-                    <a href="https://app.basecamp.com/3671212/buckets/7351439/documents/7743429669"
+                    <a href="https://decentespresso.com/docs/de1_descaling_instruction"
                        target="_blank" rel="noopener"
                        class="font-['Inter:Semi_Bold',sans-serif] font-semibold leading-[1.4] not-italic text-[#385a92] underline text-[24px]"
                        data-i18n-key="Descaling Instruction">
@@ -6596,14 +6602,150 @@ export async function initializeSettings() {
         }
     };
 
+    // ── Descaling: cool the steam boiler first ──────────────────────────────
+    // Descaler is pushed through the steam path, so the cycle must not run
+    // against a hot steam boiler (Decent's descaling instructions). We switch
+    // the steam heater off ourselves and wait for the boiler to fall to
+    // DESCALE_STEAM_MAX_C, then start. The heater is switched back on -- to its
+    // remembered temperature, held in KV by api.js's steamHeaterFor -- when the
+    // wait is cancelled, times out, fails, or the cycle finishes.
+    const DESCALE_COOLDOWN_TIMEOUT_MS = 20 * 60 * 1000;
+    const DESCALE_POLL_MS = 1000;
+    // How long to wait for the FIRST snapshot frame when the socket has only
+    // just been opened (a boot straight onto ?page=settings).
+    const DESCALE_SNAPSHOT_WAIT_MS = 3000;
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    let descaleCancelled = false;   // set by the Cancel button
+    let descaleCoolingDown = false; // a cooldown is running right now
+
+    const descaleCooldownRow = () => document.getElementById('descale-cooldown');
+
+    function paintDescaleCooldown(text) {
+        const row = descaleCooldownRow();
+        if (!row) return;
+        // Inline display, not the `hidden` attribute: the row carries Tailwind's
+        // .flex utility, which sits in a later layer than preflight's
+        // [hidden]{display:none} and would win.
+        row.style.display = text === null ? 'none' : 'flex';
+        // Start is a no-op while the boiler is cooling; say so rather than
+        // leaving a live-looking button next to the countdown.
+        const startBtn = document.getElementById('descale-start');
+        if (startBtn) {
+            startBtn.disabled = text !== null;
+            startBtn.style.opacity = text === null ? '' : '0.5';
+        }
+        const status = document.getElementById('descale-cooldown-status');
+        if (status && text !== null) status.textContent = text;
+    }
+
+    window.cancelDescaleCooldown = function() {
+        descaleCancelled = true;
+    };
+
+    const steamTemperature = () => getLastMachineSnapshot()?.steamTemperature;
+
+    // A steam reading needs the machine snapshot socket, which app.js only opens
+    // in initMainPageOnce -- skipped when the skin boots straight onto
+    // ?page=settings. Open it here (a no-op when it is already up) and give the
+    // first frame a moment to land, so the gate below is deciding on a real
+    // reading rather than falling through as "unknown".
+    async function awaitSteamTemperature() {
+        ensureSnapshotSocket();
+        const deadline = Date.now() + DESCALE_SNAPSHOT_WAIT_MS;
+        while (steamTemperature() === undefined && Date.now() < deadline) {
+            await sleep(200);
+        }
+        return steamTemperature();
+    }
+
+    /** Cool the boiler with the heater off. Returns true when safe to descale. */
+    async function coolSteamBoiler() {
+        descaleCancelled = false;
+        descaleCoolingDown = true;
+        const deadline = Date.now() + DESCALE_COOLDOWN_TIMEOUT_MS;
+        try {
+            await setSteamHeaterEnabled(false);
+            while (!descaleCancelled) {
+                const steamC = steamTemperature();
+                if (steamCoolEnoughToDescale(steamC)) return true;
+                // The user navigated away from the descaling page. Treat that as
+                // a cancel rather than starting a cycle they are no longer
+                // looking at -- the Cancel button went with the panel.
+                if (!descaleCooldownRow()) {
+                    descaleCancelled = true;
+                    break;
+                }
+                if (Date.now() > deadline) {
+                    ui.showToast(getTranslation('The steam boiler did not cool down. Try again once it is cold.'), 6000, 'error');
+                    return false;
+                }
+                paintDescaleCooldown(`${getTranslation('Cooling the steam boiler')} — ${formatTemp(steamC, 0)} → ${formatTemp(DESCALE_STEAM_MAX_C, 0)}`);
+                await sleep(DESCALE_POLL_MS);
+            }
+            return false;
+        } catch (error) {
+            logger.error('Steam boiler cooldown failed:', error);
+            ui.showToast(`${getTranslation('Could not switch the steam heater off')}: ${error.message}`, 5000, 'error');
+            return false;
+        } finally {
+            descaleCoolingDown = false;
+            paintDescaleCooldown(null);
+        }
+    }
+
+    const restoreSteamHeater = () => setSteamHeaterEnabled(true)
+        .catch(error => logger.error('Restoring the steam heater failed:', error));
+
+    // Keep the heater off for the duration of the cycle, then put it back.
+    // ponytail: watches the cached machine state rather than a completion event
+    // -- Decaid has none for descaling. If the WebView is unloaded mid-cycle
+    // (Decaid kills it after 10 minutes in the background) this watcher dies
+    // with it and the heater stays off until the user next sets a steam
+    // duration, which restores the remembered temperature anyway (steamHeaterFor
+    // in api.js). Upgrade path: a descaling-state watcher in app.js, which owns
+    // the socket and outlives this page.
+    async function restoreSteamHeaterAfterCycle() {
+        const startDeadline = Date.now() + 60000;   // cycle never began -> put it back
+        const hardDeadline = Date.now() + 7200000;  // a cycle stuck on a dead socket
+        let entered = false;
+        while (Date.now() < hardDeadline) {
+            if (currentMachineState === 'descaling') entered = true;
+            else if (entered || Date.now() > startDeadline) break;
+            await sleep(2000);
+        }
+        await restoreSteamHeater();
+    }
+
     window.startDescaling = async function() {
-        if (!confirm('Start descaling cycle? The machine will run the descaling program. Make sure the descaling solution is prepared.')) return;
+        if (descaleCoolingDown) return; // already waiting on the boiler
+        // An unknown temperature is not treated as hot: some machines never
+        // report one, and blocking on a reading that will never arrive would
+        // make descaling impossible (steamCoolEnoughToDescale).
+        const steamC = await awaitSteamTemperature();
+        let heaterSwitchedOff = false;
+        if (!steamCoolEnoughToDescale(steamC)) {
+            const message = `${getTranslation('The steam boiler is too hot to descale')} (${formatTemp(steamC, 0)} → ${formatTemp(DESCALE_STEAM_MAX_C, 0)}). `
+                + getTranslation('Switch the steam heater off and wait for it to cool?');
+            if (!confirm(message)) return;
+            if (!await coolSteamBoiler()) {
+                await restoreSteamHeater();
+                return;
+            }
+            heaterSwitchedOff = true;
+        }
+        if (!confirm('Start descaling cycle? The machine will run the descaling program. Make sure the descaling solution is prepared.')) {
+            if (heaterSwitchedOff) await restoreSteamHeater();
+            return;
+        }
         try {
             await setMachineState('descaling');
             ui.showToast('Descaling cycle started', 3000, 'success');
+            if (heaterSwitchedOff) restoreSteamHeaterAfterCycle();
         } catch (error) {
             logger.error('Error starting descaling:', error);
             ui.showToast(`Failed to start descaling: ${error.message}`, 5000, 'error');
+            if (heaterSwitchedOff) await restoreSteamHeater();
         }
     };
 
