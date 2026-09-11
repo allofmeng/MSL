@@ -22,6 +22,10 @@ import { initTimePicker } from './time-picker-modal.js';
 import { openDB, setSetting } from './idb.js';
 import { openContextMenu } from './context-menu.js';
 import { loadStyle } from './vendor-loader.js';
+// Importing this starts the KV hydrate immediately (module self-start), so the
+// fetch is already in flight by the time DOMContentLoaded awaits settingsReady
+// below, rather than only starting then.
+import { settingsReady } from './settingsSync.js';
 
 window.app = { api, ui, chart };
 
@@ -2035,6 +2039,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         chart.initChart();
         wireExpandedChart();
         logger.info('App DOMContentLoaded: Chart initialized.');
+
+        // Restore language/theme/tempUnit etc. from Decaid's KV store before
+        // anything reads them, so a WebView whose local storage was wiped
+        // (Decaid update, reinstall) comes back up in the user's own settings
+        // rather than stock defaults. Resolves either way — a machine with no
+        // Decaid at all must not hang the boot on this.
+        await settingsReady;
 
         await initI18n();
         await initUnits();
