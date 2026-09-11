@@ -7,6 +7,12 @@ import { getTempUnit, setTempUnit, formatTemp, fromDisplayTemp, boundToDisplay }
 import { loadPage } from '../modules/router.js'; // Singular and correctly formatted import
 import { logger } from '../modules/logger.js';
 import { isBengleMachine, setMachineModel, steamCoolEnoughToDescale, DESCALE_STEAM_MAX_C } from '../modules/machine.js';
+import {
+    CLEANING_PROCEDURE, DESCALING_PROCEDURE,
+    initialProcedureState, startedProcedureState, advanceProcedureState,
+    isProcedureActive, procedureIndicatorView,
+    shouldWakeBeforeStart, isAwake, WAKE_TIMEOUT_MS,
+} from '../modules/maintenance-progress.js';
 import { setScreensaverSuppressed, isMachineAsleep } from '../modules/screensaver-policy.js';
 import { isFirmwareCancellationError } from '../modules/firmware-progress.js';
 import { resolveSteamStopMode, applyMilkProbeGate } from '../modules/steam-mode.js';
@@ -367,6 +373,12 @@ function updateSettingsContentArea(category) {
     if (category !== 'calib_loadcell' && calWsClaimed) calReleaseScaleWs();
     // Leaving the Cup Warmer page → stop its ~5 s revalidate poll.
     if (category !== 'cupwarmer' && cupWarmerPollTimer !== null) stopCupWarmerPoll();
+    // Leaving Clean/Descaling → stop polling the snapshot for their milestone
+    // strip. A cycle already running is unaffected (it runs on the machine);
+    // picking the category back up re-adopts whatever the machine reports by
+    // then (advanceProcedureState needs no continuous history to do that).
+    if (category !== 'maint_cleaning') cleanWatcher.stop();
+    if (category !== 'maint_descaling') descaleWatcher.stop();
     const contentArea = document.getElementById('settings-content-area');
     if (contentArea) {
         contentArea.innerHTML = renderSettingsContent(category);
@@ -400,6 +412,14 @@ function updateSettingsContentArea(category) {
         }
         if (category === 'ledstrip') {
             setTimeout(initLedPicker, 0);
+        }
+        if (category === 'maint_cleaning') {
+            cleanWatcher.watch(handleCleanDone);
+            cleanWatcher.paint();
+        }
+        if (category === 'maint_descaling') {
+            descaleWatcher.watch(handleDescaleDone);
+            descaleWatcher.paint();
         }
         // Step 4's live readout needs the scale WS — claim it on every render
         // of the page at step 4 (idempotent), so returning to a resumed wizard
@@ -453,6 +473,7 @@ const settingsTree = {
     'maintenance': {
         name: 'Maintenance',
         subcategories: [
+            { id: 'machinecleaning',  name: 'Clean',              settingsCategory: 'maint_cleaning' },
             { id: 'machinedescaling', name: 'Machine Descaling', settingsCategory: 'maint_descaling' },
             { id: 'transportmode',    name: 'Transport Mode',    settingsCategory: 'maint_airpurge' }
         ]
@@ -743,6 +764,8 @@ export function renderSettingsContent(category) {
             return renderCalibSteamSettings();
         case 'calib_loadcell':
             return renderLoadCellCalibration();
+        case 'maint_cleaning':
+            return renderMainCleaningSettings();
         case 'maint_descaling':
             return renderMainDescalingSettings();
         case 'maint_airpurge':
@@ -4274,6 +4297,381 @@ const CAL_CARD = "border border-[#c9c9c9] border-solid content-stretch flex flex
 const CAL_HEADING = "font-['Inter:Semi_Bold',sans-serif] font-semibold leading-[1.2] not-italic text-[var(--text-primary)] text-[30px] text-center";
 const CAL_BODY = "font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic text-[var(--text-primary)] text-[24px] w-full text-center";
 
+// ── Cleaning / descaling milestone strip ────────────────────────────────────
+// Same dot-and-connector look as the load-cell calibration step indicator
+// above, driven off maintenance-progress.js's pure state machine instead of a
+// local step counter: the machine owns the actual cycle, this only reflects
+// what its snapshot socket reports (see that module for why a bare state
+// compare is not enough).
+const PROCEDURE_STEP_DONE = '#0ca581';
+const PROCEDURE_STEP_ACTIVE = '#385a92';
+const PROCEDURE_STEP_PENDING = 'var(--button-grey)';
+const PROCEDURE_CAPTION_TONES = {
+    info: 'text-[#959595]',
+    progress: 'text-[#959595]',
+    success: 'text-[#0ca581] font-bold',
+    error: 'text-red-500 font-bold',
+};
+
+/** The milestone strip's markup — hidden until createProcedureWatcher's paint() shows it. */
+function procedureProgressRow(panelId, dotsId, captionId) {
+    return `
+                    <div id="${panelId}" class="flex flex-col w-full" style="gap:16px;display:none">
+                        <div id="${dotsId}" class="flex items-center justify-center w-full" style="gap:10px"></div>
+                        <p id="${captionId}" class="text-center text-[24px] w-full"></p>
+                    </div>`;
+}
+
+function procedureStepDots(milestone, labels) {
+    return labels.map((label, i) => {
+        const isDone = i < milestone;
+        const isActive = i === milestone;
+        const background = isDone ? PROCEDURE_STEP_DONE : (isActive ? PROCEDURE_STEP_ACTIVE : PROCEDURE_STEP_PENDING);
+        const color = (isDone || isActive) ? '#ffffff' : '#959595';
+        const dot = `<div class="rounded-full flex items-center justify-center text-[22px] font-bold shrink-0" style="width:44px;height:44px;background:${background};color:${color}" title="${getTranslation(label)}">${isDone ? '&#10003;' : i + 1}</div>`;
+        const bar = i < labels.length - 1
+            ? `<div class="shrink-0" style="width:40px;height:3px;background:${i < milestone ? PROCEDURE_STEP_DONE : PROCEDURE_STEP_PENDING}"></div>`
+            : '';
+        return dot + bar;
+    }).join('');
+}
+
+/**
+ * Watches one procedure (cleaning or descaling) against the cached machine
+ * snapshot and paints its milestone strip + Start/Stop button. One instance per
+ * procedure, created once in initializeSettings() so a cycle started before the
+ * user switches away from this settings category — or on the machine itself —
+ * keeps being tracked and still triggers the on-done handling.
+ *
+ * `ids` names the DOM hooks the panel markup carries: panelId (the whole
+ * strip, hidden until a cycle is under way), dotsId, captionId, buttonId (the
+ * Start/Stop button, whose label this also owns).
+ */
+function createProcedureWatcher(procedure, ids) {
+    let state = initialProcedureState();
+    let timer = null;
+
+    function els() {
+        return {
+            panel: document.getElementById(ids.panelId),
+            dots: document.getElementById(ids.dotsId),
+            caption: document.getElementById(ids.captionId),
+            button: document.getElementById(ids.buttonId),
+        };
+    }
+
+    function stop() {
+        if (timer !== null) { clearInterval(timer); timer = null; }
+    }
+
+    function paint() {
+        const { panel, dots, caption, button } = els();
+        if (!panel) { stop(); return; } // category switched away — nothing left to paint
+        const view = procedureIndicatorView(state, procedure);
+        panel.style.display = view ? 'flex' : 'none';
+        if (view && dots && caption) {
+            dots.innerHTML = procedureStepDots(view.milestone, view.labels);
+            caption.className = `text-center text-[24px] w-full ${PROCEDURE_CAPTION_TONES[view.tone]}`;
+            caption.textContent = getTranslation(view.caption);
+        }
+        if (button) {
+            const label = isProcedureActive(state) ? 'Stop' : 'Start';
+            button.dataset.i18nKey = label;
+            button.textContent = getTranslation(label);
+        }
+    }
+
+    /**
+     * Start (or confirm already-started) watching. `onChange(state, previous)`
+     * fires only on an actual transition, mirroring advanceProcedureState's own
+     * "same object back = nothing changed" contract — callers key their
+     * done/timeout handling off that rather than polling `.phase` themselves.
+     */
+    function watch(onChange) {
+        ensureSnapshotSocket();
+        if (timer !== null) return;
+        timer = setInterval(() => {
+            const previous = state;
+            state = advanceProcedureState(state, {
+                state: currentMachineState,
+                substate: getLastMachineSnapshot()?.state?.substate ?? null,
+                tickMs: 1000,
+            }, procedure);
+            if (state === previous) return;
+            paint();
+            onChange?.(state, previous);
+        }, 1000);
+    }
+
+    return {
+        get state() { return state; },
+        set state(next) { state = next; },
+        paint, watch, stop,
+    };
+}
+
+// One watcher per procedure, module-level so both initializeSettings() (the
+// window.* click handlers, redefined each settings-page load) and
+// updateSettingsContentArea() (category mount/teardown, called on every
+// sidebar click without re-running initializeSettings()) share the same
+// instance — that is what lets a cycle keep being tracked across a category
+// switch and mid-cycle back again, and lets the sidebar handler stop the poll
+// on the way out.
+const descaleWatcher = createProcedureWatcher(DESCALING_PROCEDURE, {
+    panelId: 'descale-progress', dotsId: 'descale-dots', captionId: 'descale-caption', buttonId: 'descale-start',
+});
+const cleanWatcher = createProcedureWatcher(CLEANING_PROCEDURE, {
+    panelId: 'clean-progress', dotsId: 'clean-dots', captionId: 'clean-caption', buttonId: 'clean-start',
+});
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// A sleeping DE1 drops the cleaning/descaling request on the floor, so wake it
+// first and wait for the machine to confirm rather than firing both back to
+// back. Best effort: on timeout the start request still goes out, and the
+// cycle's own entry timeout (advanceProcedureState's 'waiting' -> 'timeout')
+// reports it if the machine never enters.
+async function waitUntilAwake() {
+    const deadline = Date.now() + WAKE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        if (isAwake(currentMachineState)) return;
+        await sleep(250);
+    }
+}
+
+// ── Descaling: cool the steam boiler first ──────────────────────────────────
+// Descaler is pushed through the steam path, so the cycle must not run against
+// a hot steam boiler (Decent's descaling instructions). We switch the steam
+// heater off ourselves and wait for the boiler to fall to DESCALE_STEAM_MAX_C,
+// then start. The heater is switched back on -- to its remembered temperature,
+// held in KV by api.js's steamHeaterFor -- when the wait is cancelled, times
+// out, fails, or the cycle finishes (or times out) per descaleWatcher.
+const DESCALE_COOLDOWN_TIMEOUT_MS = 20 * 60 * 1000;
+const DESCALE_POLL_MS = 1000;
+// How long to wait for the FIRST snapshot frame when the socket has only just
+// been opened (a boot straight onto ?page=settings).
+const DESCALE_SNAPSHOT_WAIT_MS = 3000;
+
+let descaleCancelled = false;   // set by the Cancel button
+let descaleCoolingDown = false; // a cooldown is running right now
+// Only ever true between a successful coolSteamBoiler() and the matching
+// restore, so restoreSteamHeaterIfNeeded() never fires a needless PUT when the
+// boiler was already cool and the heater was never touched.
+let descaleHeaterOff = false;
+
+const descaleCooldownRow = () => document.getElementById('descale-cooldown');
+
+function paintDescaleCooldown(text) {
+    const row = descaleCooldownRow();
+    if (!row) return;
+    // Inline display, not the `hidden` attribute: the row carries Tailwind's
+    // .flex utility, which sits in a later layer than preflight's
+    // [hidden]{display:none} and would win.
+    row.style.display = text === null ? 'none' : 'flex';
+    // Start is a no-op while the boiler is cooling; say so rather than leaving
+    // a live-looking button next to the countdown.
+    const startBtn = document.getElementById('descale-start');
+    if (startBtn) {
+        startBtn.disabled = text !== null;
+        startBtn.style.opacity = text === null ? '' : '0.5';
+    }
+    const status = document.getElementById('descale-cooldown-status');
+    if (status && text !== null) status.textContent = text;
+}
+
+function cancelDescaleCooldown() {
+    descaleCancelled = true;
+}
+
+const steamTemperature = () => getLastMachineSnapshot()?.steamTemperature;
+
+// A steam reading needs the machine snapshot socket, which app.js only opens
+// in initMainPageOnce -- skipped when the skin boots straight onto
+// ?page=settings. Open it here (a no-op when it is already up) and give the
+// first frame a moment to land, so the gate below is deciding on a real
+// reading rather than falling through as "unknown".
+async function awaitSteamTemperature() {
+    ensureSnapshotSocket();
+    const deadline = Date.now() + DESCALE_SNAPSHOT_WAIT_MS;
+    while (steamTemperature() === undefined && Date.now() < deadline) {
+        await sleep(200);
+    }
+    return steamTemperature();
+}
+
+/** Cool the boiler with the heater off. Returns true when safe to descale. */
+async function coolSteamBoiler() {
+    descaleCancelled = false;
+    descaleCoolingDown = true;
+    const deadline = Date.now() + DESCALE_COOLDOWN_TIMEOUT_MS;
+    try {
+        await setSteamHeaterEnabled(false);
+        while (!descaleCancelled) {
+            const steamC = steamTemperature();
+            if (steamCoolEnoughToDescale(steamC)) return true;
+            // The user navigated away from the descaling page. Treat that as a
+            // cancel rather than starting a cycle they are no longer looking
+            // at -- the Cancel button went with the panel.
+            if (!descaleCooldownRow()) {
+                descaleCancelled = true;
+                break;
+            }
+            if (Date.now() > deadline) {
+                ui.showToast(getTranslation('The steam boiler did not cool down. Try again once it is cold.'), 6000, 'error');
+                return false;
+            }
+            paintDescaleCooldown(`${getTranslation('Cooling the steam boiler')} — ${formatTemp(steamC, 0)} → ${formatTemp(DESCALE_STEAM_MAX_C, 0)}`);
+            await sleep(DESCALE_POLL_MS);
+        }
+        return false;
+    } catch (error) {
+        logger.error('Steam boiler cooldown failed:', error);
+        ui.showToast(`${getTranslation('Could not switch the steam heater off')}: ${error.message}`, 5000, 'error');
+        return false;
+    } finally {
+        descaleCoolingDown = false;
+        paintDescaleCooldown(null);
+    }
+}
+
+async function restoreSteamHeaterIfNeeded() {
+    if (!descaleHeaterOff) return;
+    descaleHeaterOff = false;
+    await setSteamHeaterEnabled(true).catch(error => logger.error('Restoring the steam heater failed:', error));
+}
+
+// Fires only on an actual phase transition (createProcedureWatcher's contract),
+// so this runs exactly once per completion or timeout, however long the
+// interval has been ticking.
+function handleDescaleDone(state, previous) {
+    if (state.phase === 'done' && previous.phase !== 'done') {
+        descaleWatcher.stop();
+        restoreSteamHeaterIfNeeded();
+        ui.showToast(getTranslation('Descaling complete'), 3000, 'success');
+        descaleWatcher.state = initialProcedureState();
+        // The cycle is over — leave the maintenance page rather than leaving
+        // the user looking at a finished milestone strip with nothing left to
+        // do here.
+        loadPage('index.html');
+        return;
+    }
+    if (state.phase === 'timeout' && previous.phase !== 'timeout') {
+        descaleWatcher.stop();
+        restoreSteamHeaterIfNeeded();
+        descaleWatcher.state = initialProcedureState();
+        descaleWatcher.paint();
+        ui.showToast(getTranslation('The machine did not start. Check that it is awake and connected.'), 6000, 'error');
+    }
+}
+
+async function startDescaling() {
+    if (isProcedureActive(descaleWatcher.state)) {
+        // The button reads Stop while a cycle is tracked — tap to abort.
+        try {
+            await setMachineState('idle');
+        } catch (error) {
+            logger.error('Stopping descaling failed:', error);
+            ui.showToast(`${getTranslation('Failed to stop')}: ${error.message}`, 5000, 'error');
+            return;
+        }
+        await restoreSteamHeaterIfNeeded();
+        descaleWatcher.state = initialProcedureState();
+        descaleWatcher.paint();
+        return;
+    }
+    if (descaleCoolingDown) return; // already waiting on the boiler
+    if (shouldWakeBeforeStart(currentMachineState)) {
+        await setMachineState('idle').catch(() => {});
+        await waitUntilAwake();
+    }
+    // An unknown temperature is not treated as hot: some machines never report
+    // one, and blocking on a reading that will never arrive would make
+    // descaling impossible (steamCoolEnoughToDescale).
+    const steamC = await awaitSteamTemperature();
+    if (!steamCoolEnoughToDescale(steamC)) {
+        const message = `${getTranslation('The steam boiler is too hot to descale')} (${formatTemp(steamC, 0)} → ${formatTemp(DESCALE_STEAM_MAX_C, 0)}). `
+            + getTranslation('Switch the steam heater off and wait for it to cool?');
+        if (!confirm(message)) return;
+        if (!await coolSteamBoiler()) {
+            await restoreSteamHeaterIfNeeded();
+            return;
+        }
+        descaleHeaterOff = true;
+    }
+    if (!confirm('Start descaling cycle? The machine will run the descaling program. Make sure the descaling solution is prepared.')) {
+        await restoreSteamHeaterIfNeeded();
+        return;
+    }
+    descaleWatcher.state = startedProcedureState();
+    descaleWatcher.paint();
+    descaleWatcher.watch(handleDescaleDone);
+    try {
+        await setMachineState('descaling');
+        ui.showToast('Descaling cycle started', 3000, 'success');
+    } catch (error) {
+        logger.error('Error starting descaling:', error);
+        ui.showToast(`Failed to start descaling: ${error.message}`, 5000, 'error');
+        descaleWatcher.state = initialProcedureState();
+        descaleWatcher.paint();
+        await restoreSteamHeaterIfNeeded();
+    }
+}
+
+// ── Cleaning ─────────────────────────────────────────────────────────────────
+// No steam boiler concerns — just wake-if-asleep, confirm, start, and the same
+// milestone tracking as descaling.
+function handleCleanDone(state, previous) {
+    if (state.phase === 'done' && previous.phase !== 'done') {
+        cleanWatcher.stop();
+        ui.showToast(getTranslation('Cleaning complete'), 3000, 'success');
+        cleanWatcher.state = initialProcedureState();
+        loadPage('index.html');
+        return;
+    }
+    if (state.phase === 'timeout' && previous.phase !== 'timeout') {
+        cleanWatcher.stop();
+        cleanWatcher.state = initialProcedureState();
+        cleanWatcher.paint();
+        ui.showToast(getTranslation('The machine did not start. Check that it is awake and connected.'), 6000, 'error');
+    }
+}
+
+async function startCleaning() {
+    if (isProcedureActive(cleanWatcher.state)) {
+        try {
+            await setMachineState('idle');
+        } catch (error) {
+            logger.error('Stopping cleaning failed:', error);
+            ui.showToast(`${getTranslation('Failed to stop')}: ${error.message}`, 5000, 'error');
+            return;
+        }
+        cleanWatcher.state = initialProcedureState();
+        cleanWatcher.paint();
+        return;
+    }
+    if (currentMachineState === MachineState.NEEDS_WATER) {
+        ui.showToast(`${getTranslation('Out of water')} - ${getTranslation('Press the stop button on the group head to override, then tap Start again.')}`, 6000, 'error');
+        return;
+    }
+    if (!confirm(getTranslation('3) Put a blind basket in the portafilter.'))) return;
+    if (shouldWakeBeforeStart(currentMachineState)) {
+        await setMachineState('idle').catch(() => {});
+        await waitUntilAwake();
+    }
+    cleanWatcher.state = startedProcedureState();
+    cleanWatcher.paint();
+    cleanWatcher.watch(handleCleanDone);
+    try {
+        await setMachineState('cleaning');
+        ui.showToast(getTranslation('Cleaning cycle started'), 3000, 'success');
+    } catch (error) {
+        logger.error('Error starting cleaning:', error);
+        ui.showToast(`Failed to start cleaning: ${error.message}`, 5000, 'error');
+        cleanWatcher.state = initialProcedureState();
+        cleanWatcher.paint();
+    }
+}
+
 // Fixed-height status line + ONE button that swaps label/action with state
 // (see calActionState in loadcell-cal.js), so the card height stays constant
 // and the buttons never jump:
@@ -4630,6 +5028,7 @@ export function renderMainDescalingSettings() {
                             Cancel
                         </button>
                     </div>
+                    ${procedureProgressRow('descale-progress', 'descale-dots', 'descale-caption')}
                     <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Run a descaling cycle to remove mineral buildup">
                         Run a descaling cycle to remove mineral buildup
                     </p>
@@ -4639,6 +5038,36 @@ export function renderMainDescalingSettings() {
                        data-i18n-key="Descaling Instruction">
                         Descaling Instruction
                     </a>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+export function renderMainCleaningSettings() {
+    return `
+        <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
+            <div class="flex flex-col font-['Inter:Semi_Bold',sans-serif] font-semibold justify-center leading-[0] min-w-full not-italic relative text-[var(--text-primary)] text-[36px] text-center w-[min-content]">
+                <p class="leading-[1.2]" data-i18n-key="Clean">Clean</p>
+            </div>
+
+            <div class="h-0 relative w-full"><hr class="border-t border-[#c9c9c9] w-full" /></div>
+
+            <div class="content-stretch flex flex-col items-start relative w-full">
+                <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full">
+                    <div class="content-stretch flex items-center justify-between relative w-full">
+                        <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
+                            <p class="leading-[1.2]" data-i18n-key="Clean">Clean</p>
+                        </div>
+                        <button id="clean-start" class="bg-[#385a92] h-[72px] px-[48px] rounded-[72px] text-white text-[24px] font-bold"
+                                onclick="window.startCleaning()" data-i18n-key="Start">
+                            Start
+                        </button>
+                    </div>
+                    ${procedureProgressRow('clean-progress', 'clean-dots', 'clean-caption')}
+                    <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Run a cleaning cycle to backflush the group head">
+                        Run a cleaning cycle to backflush the group head
+                    </p>
                 </div>
             </div>
         </div>
@@ -6602,152 +7031,9 @@ export async function initializeSettings() {
         }
     };
 
-    // ── Descaling: cool the steam boiler first ──────────────────────────────
-    // Descaler is pushed through the steam path, so the cycle must not run
-    // against a hot steam boiler (Decent's descaling instructions). We switch
-    // the steam heater off ourselves and wait for the boiler to fall to
-    // DESCALE_STEAM_MAX_C, then start. The heater is switched back on -- to its
-    // remembered temperature, held in KV by api.js's steamHeaterFor -- when the
-    // wait is cancelled, times out, fails, or the cycle finishes.
-    const DESCALE_COOLDOWN_TIMEOUT_MS = 20 * 60 * 1000;
-    const DESCALE_POLL_MS = 1000;
-    // How long to wait for the FIRST snapshot frame when the socket has only
-    // just been opened (a boot straight onto ?page=settings).
-    const DESCALE_SNAPSHOT_WAIT_MS = 3000;
-    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-    let descaleCancelled = false;   // set by the Cancel button
-    let descaleCoolingDown = false; // a cooldown is running right now
-
-    const descaleCooldownRow = () => document.getElementById('descale-cooldown');
-
-    function paintDescaleCooldown(text) {
-        const row = descaleCooldownRow();
-        if (!row) return;
-        // Inline display, not the `hidden` attribute: the row carries Tailwind's
-        // .flex utility, which sits in a later layer than preflight's
-        // [hidden]{display:none} and would win.
-        row.style.display = text === null ? 'none' : 'flex';
-        // Start is a no-op while the boiler is cooling; say so rather than
-        // leaving a live-looking button next to the countdown.
-        const startBtn = document.getElementById('descale-start');
-        if (startBtn) {
-            startBtn.disabled = text !== null;
-            startBtn.style.opacity = text === null ? '' : '0.5';
-        }
-        const status = document.getElementById('descale-cooldown-status');
-        if (status && text !== null) status.textContent = text;
-    }
-
-    window.cancelDescaleCooldown = function() {
-        descaleCancelled = true;
-    };
-
-    const steamTemperature = () => getLastMachineSnapshot()?.steamTemperature;
-
-    // A steam reading needs the machine snapshot socket, which app.js only opens
-    // in initMainPageOnce -- skipped when the skin boots straight onto
-    // ?page=settings. Open it here (a no-op when it is already up) and give the
-    // first frame a moment to land, so the gate below is deciding on a real
-    // reading rather than falling through as "unknown".
-    async function awaitSteamTemperature() {
-        ensureSnapshotSocket();
-        const deadline = Date.now() + DESCALE_SNAPSHOT_WAIT_MS;
-        while (steamTemperature() === undefined && Date.now() < deadline) {
-            await sleep(200);
-        }
-        return steamTemperature();
-    }
-
-    /** Cool the boiler with the heater off. Returns true when safe to descale. */
-    async function coolSteamBoiler() {
-        descaleCancelled = false;
-        descaleCoolingDown = true;
-        const deadline = Date.now() + DESCALE_COOLDOWN_TIMEOUT_MS;
-        try {
-            await setSteamHeaterEnabled(false);
-            while (!descaleCancelled) {
-                const steamC = steamTemperature();
-                if (steamCoolEnoughToDescale(steamC)) return true;
-                // The user navigated away from the descaling page. Treat that as
-                // a cancel rather than starting a cycle they are no longer
-                // looking at -- the Cancel button went with the panel.
-                if (!descaleCooldownRow()) {
-                    descaleCancelled = true;
-                    break;
-                }
-                if (Date.now() > deadline) {
-                    ui.showToast(getTranslation('The steam boiler did not cool down. Try again once it is cold.'), 6000, 'error');
-                    return false;
-                }
-                paintDescaleCooldown(`${getTranslation('Cooling the steam boiler')} — ${formatTemp(steamC, 0)} → ${formatTemp(DESCALE_STEAM_MAX_C, 0)}`);
-                await sleep(DESCALE_POLL_MS);
-            }
-            return false;
-        } catch (error) {
-            logger.error('Steam boiler cooldown failed:', error);
-            ui.showToast(`${getTranslation('Could not switch the steam heater off')}: ${error.message}`, 5000, 'error');
-            return false;
-        } finally {
-            descaleCoolingDown = false;
-            paintDescaleCooldown(null);
-        }
-    }
-
-    const restoreSteamHeater = () => setSteamHeaterEnabled(true)
-        .catch(error => logger.error('Restoring the steam heater failed:', error));
-
-    // Keep the heater off for the duration of the cycle, then put it back.
-    // ponytail: watches the cached machine state rather than a completion event
-    // -- Decaid has none for descaling. If the WebView is unloaded mid-cycle
-    // (Decaid kills it after 10 minutes in the background) this watcher dies
-    // with it and the heater stays off until the user next sets a steam
-    // duration, which restores the remembered temperature anyway (steamHeaterFor
-    // in api.js). Upgrade path: a descaling-state watcher in app.js, which owns
-    // the socket and outlives this page.
-    async function restoreSteamHeaterAfterCycle() {
-        const startDeadline = Date.now() + 60000;   // cycle never began -> put it back
-        const hardDeadline = Date.now() + 7200000;  // a cycle stuck on a dead socket
-        let entered = false;
-        while (Date.now() < hardDeadline) {
-            if (currentMachineState === 'descaling') entered = true;
-            else if (entered || Date.now() > startDeadline) break;
-            await sleep(2000);
-        }
-        await restoreSteamHeater();
-    }
-
-    window.startDescaling = async function() {
-        if (descaleCoolingDown) return; // already waiting on the boiler
-        // An unknown temperature is not treated as hot: some machines never
-        // report one, and blocking on a reading that will never arrive would
-        // make descaling impossible (steamCoolEnoughToDescale).
-        const steamC = await awaitSteamTemperature();
-        let heaterSwitchedOff = false;
-        if (!steamCoolEnoughToDescale(steamC)) {
-            const message = `${getTranslation('The steam boiler is too hot to descale')} (${formatTemp(steamC, 0)} → ${formatTemp(DESCALE_STEAM_MAX_C, 0)}). `
-                + getTranslation('Switch the steam heater off and wait for it to cool?');
-            if (!confirm(message)) return;
-            if (!await coolSteamBoiler()) {
-                await restoreSteamHeater();
-                return;
-            }
-            heaterSwitchedOff = true;
-        }
-        if (!confirm('Start descaling cycle? The machine will run the descaling program. Make sure the descaling solution is prepared.')) {
-            if (heaterSwitchedOff) await restoreSteamHeater();
-            return;
-        }
-        try {
-            await setMachineState('descaling');
-            ui.showToast('Descaling cycle started', 3000, 'success');
-            if (heaterSwitchedOff) restoreSteamHeaterAfterCycle();
-        } catch (error) {
-            logger.error('Error starting descaling:', error);
-            ui.showToast(`Failed to start descaling: ${error.message}`, 5000, 'error');
-            if (heaterSwitchedOff) await restoreSteamHeater();
-        }
-    };
+    window.cancelDescaleCooldown = cancelDescaleCooldown;
+    window.startDescaling = startDescaling;
+    window.startCleaning = startCleaning;
 
     // --- Load-cell calibration wizard handlers ---
     window.calSetWeight = function(v) {

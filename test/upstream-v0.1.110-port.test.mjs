@@ -51,7 +51,7 @@ test('a hot steam boiler blocks descaling, an unknown reading does not', () => {
 
 test('the descale flow cools the boiler itself and always puts the heater back', () => {
     const settings = read('src/settings/settings.js');
-    const start = settings.match(/window\.startDescaling = async function\(\)[\s\S]*?\n {4}\};/)[0];
+    const start = settings.match(/async function startDescaling\(\)[\s\S]*?\n\}/)[0];
     // The cycle may only be requested after the gate has passed.
     assert.ok(
         start.indexOf('steamCoolEnoughToDescale') < start.indexOf("setMachineState('descaling')"),
@@ -61,14 +61,35 @@ test('the descale flow cools the boiler itself and always puts the heater back',
         (settings.match(/setMachineState\('descaling'\)/g) || []).length, 1,
         'one entry point, so one gate',
     );
-    // Every path that leaves after the heater was switched off has to restore it:
-    // the cooldown failing or being cancelled, the user backing out of the start
-    // confirmation, the start call failing, and the cycle finishing.
-    assert.equal((start.match(/restoreSteamHeater\(\)/g) || []).length, 3);
-    assert.match(start, /restoreSteamHeaterAfterCycle\(\)/);
+    // Every path in startDescaling() that leaves after the heater was switched
+    // off has to restore it: a manual Stop tap, the cooldown failing, backing
+    // out of the start confirmation, and the start call failing. The fifth
+    // restore path — the cycle actually finishing or timing out — lives in
+    // handleDescaleDone, which the milestone watcher calls on that transition.
+    assert.equal((start.match(/restoreSteamHeaterIfNeeded\(\)/g) || []).length, 4);
+    const handleDone = settings.match(/function handleDescaleDone\([\s\S]*?\n\}/)[0];
+    assert.match(handleDone, /restoreSteamHeaterIfNeeded\(\)/);
     // The snapshot socket is opened first, so a boot straight onto ?page=settings
     // decides on a real reading instead of falling through as unknown.
     assert.match(settings, /ensureSnapshotSocket\(\);[\s\S]{0,400}steamTemperature\(\) === undefined/);
+});
+
+test('descaling completion redirects to the main page, exactly once, and stops the watcher', () => {
+    const settings = read('src/settings/settings.js');
+    const handleDone = settings.match(/function handleDescaleDone\([\s\S]*?\n\}/)[0];
+    assert.match(handleDone, /previous\.phase !== 'done'/, 'must fire once per completion, not every tick');
+    assert.match(handleDone, /descaleWatcher\.stop\(\)/);
+    assert.match(handleDone, /loadPage\('index\.html'\)/);
+});
+
+test('cleaning has its own milestone watcher and also redirects home when done', () => {
+    const settings = read('src/settings/settings.js');
+    assert.match(settings, /const cleanWatcher = createProcedureWatcher\(CLEANING_PROCEDURE/);
+    const handleDone = settings.match(/function handleCleanDone\([\s\S]*?\n\}/)[0];
+    assert.match(handleDone, /previous\.phase !== 'done'/);
+    assert.match(handleDone, /cleanWatcher\.stop\(\)/);
+    assert.match(handleDone, /loadPage\('index\.html'\)/);
+    assert.match(settings, /window\.startCleaning = startCleaning/);
 });
 
 // --- old Android WebViews (pre-Chromium 92) --------------------------------
