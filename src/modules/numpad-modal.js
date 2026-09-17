@@ -2,6 +2,7 @@ import { getValueFromStore, setValueInStore, getShots } from './api.js';
 import { flashElement } from './ui.js';
 import { getTranslation } from './i18n.js';
 import { getTempUnit, boundToDisplay } from './units.js';
+import { logger } from './logger.js';
 
 const fieldDisplayElementIds = {
     'dose-in': 'dose-in-value',
@@ -29,7 +30,7 @@ async function getPreviousValues(fieldType) {
         const values = await getValueFromStore('numpad', `previous-values-${fieldType}`);
         return values || [];
     } catch (error) {
-        console.log('[Numpad] Error getting previous values:', error);
+        logger.debug('[Numpad] Error getting previous values:', error);
         return [];
     }
 }
@@ -40,7 +41,7 @@ async function savePreviousValue(fieldType, value) {
         const newList = [value, ...existing.filter(v => v !== value)].slice(0, 8);
         await setValueInStore('numpad', `previous-values-${fieldType}`, newList);
     } catch (error) {
-        console.log('[Numpad] Error saving previous value:', error);
+        logger.debug('[Numpad] Error saving previous value:', error);
     }
 }
 
@@ -56,7 +57,7 @@ async function getValuesFromShotHistory(fieldType, limit = 8) {
         } else if (response && Array.isArray(response.shots)) {
             shots = response.shots;
         } else {
-            console.log('[Numpad] Unexpected shots response format:', response);
+            logger.debug('[Numpad] Unexpected shots response format:', response);
             return [];
         }
         
@@ -73,7 +74,7 @@ async function getValuesFromShotHistory(fieldType, limit = 8) {
         });
         return [...new Set(values)].slice(0, limit);
     } catch (error) {
-        console.log('[Numpad] Error getting shot history:', error);
+        logger.debug('[Numpad] Error getting shot history:', error);
         return [];
     }
 }
@@ -282,7 +283,7 @@ function updateDisplay() {
 }
 
 function handleNumberClick(num) {
-    console.log('[Numpad] handleNumberClick called with:', num, 'currentValue before:', currentValue);
+    logger.debug('[Numpad] handleNumberClick called with:', num, 'currentValue before:', currentValue);
     if (isFirstInput) {
         currentValue = num;
         isFirstInput = false;
@@ -291,7 +292,7 @@ function handleNumberClick(num) {
     } else if (currentValue.length < 5) {
         currentValue = currentValue + num;
     }
-    console.log('[Numpad] handleNumberClick currentValue after:', currentValue);
+    logger.debug('[Numpad] handleNumberClick currentValue after:', currentValue);
     updateDisplay();
 }
 
@@ -390,9 +391,9 @@ function getFieldDisplayValue(value, fieldType) {
 }
 
 async function openModal(inputElement, options = {}) {
-    console.log('[Numpad] openModal called', { fieldType: options.fieldType, inputElement });
+    logger.debug('[Numpad] openModal called', { fieldType: options.fieldType, inputElement });
     if (!numpadModalInitialized) {
-        console.log('[Numpad] Initializing numpad modal...');
+        logger.debug('[Numpad] Initializing numpad modal...');
         initializeNumpadModal();
     }
     
@@ -418,7 +419,7 @@ async function openModal(inputElement, options = {}) {
     originalValue = currentValue;
     
     isFirstInput = true;
-    console.log('[Numpad] currentValue set to:', currentValue);
+    logger.debug('[Numpad] currentValue set to:', currentValue);
     
     // Update modal title and label. Run both through i18n so the field name
     // and helper text follow the selected language (falls back to the English
@@ -486,15 +487,15 @@ function handleConfirm() {
     // discarded -- e.g. 0 bar is how a flow step's pressure limit is switched
     // off, and entering it did nothing at all.
     const finalValue = currentValue;
-    console.log('[Numpad] handleConfirm called, finalValue:', finalValue, 'currentInputElement:', currentInputElement);
+    logger.debug('[Numpad] handleConfirm called, finalValue:', finalValue, 'currentInputElement:', currentInputElement);
     
     if (currentInputElement) {
-        console.log('[Numpad] Setting input element value to:', finalValue);
+        logger.debug('[Numpad] Setting input element value to:', finalValue);
         currentInputElement.value = finalValue;
         currentInputElement.dispatchEvent(new Event('change', { bubbles: true }));
         currentInputElement.dispatchEvent(new Event('input', { bubbles: true }));
     } else {
-        console.log('[Numpad] ERROR: currentInputElement is null!');
+        logger.debug('[Numpad] ERROR: currentInputElement is null!');
     }
     
     // Save to previous values
@@ -510,10 +511,10 @@ function handleConfirm() {
 function initializeNumpadModal() {
     if (numpadModalInitialized) return;
     
-    console.log('[Numpad] initializeNumpadModal called - creating modal HTML');
+    logger.debug('[Numpad] initializeNumpadModal called - creating modal HTML');
     createModalHTML();
     
-    console.log('[Numpad] Attaching event listeners...');
+    logger.debug('[Numpad] Attaching event listeners...');
     const closeBtn = document.getElementById('numpad-modal-close');
     if (closeBtn) {
         closeBtn.addEventListener('click', handleCancel);
@@ -522,11 +523,11 @@ function initializeNumpadModal() {
     document.getElementById('numpad-confirm').addEventListener('click', handleConfirm);
     
     const numpadButtons = document.querySelectorAll('.numpad-modal-numpad-btn[data-number]');
-    console.log('[Numpad] Found numpad buttons:', numpadButtons.length);
+    logger.debug('[Numpad] Found numpad buttons:', numpadButtons.length);
     
     numpadButtons.forEach(button => {
         button.addEventListener('click', (e) => {
-            console.log('[Numpad] Button clicked:', button.getAttribute('data-number'));
+            logger.debug('[Numpad] Button clicked:', button.getAttribute('data-number'));
             const number = button.getAttribute('data-number');
             handleNumberClick(number);
         });
@@ -543,7 +544,7 @@ function initializeNumpadModal() {
     });
     
     numpadModalInitialized = true;
-    console.log('[Numpad] Initialization complete');
+    logger.debug('[Numpad] Initialization complete');
 }
 
 function attachToNumericInputs(selector = 'input[type="number"]', options = {}) {
@@ -583,7 +584,7 @@ function initNumpadModal() {
     const isNarrowViewport = width < 1024 || height < 900;
     const shouldUse = shouldUseNumpad();
     
-    console.log('[NumpadModal] Debug - width:', width, 'height:', height, 'isTouch:', isTouchDevice, 'isNarrow:', isNarrowViewport, 'shouldUseNumpad:', shouldUse);
+    logger.debug('[NumpadModal] Debug - width:', width, 'height:', height, 'isTouch:', isTouchDevice, 'isNarrow:', isNarrowViewport, 'shouldUseNumpad:', shouldUse);
     
     if (shouldUse) {
         initializeNumpadModal();
@@ -593,7 +594,7 @@ function initNumpadModal() {
 // Reset function to allow reinitialization after DOM changes (e.g., router page loads)
 function resetNumpadModal() {
     numpadModalInitialized = false;
-    console.log('[Numpad] Modal state reset');
+    logger.debug('[Numpad] Modal state reset');
 }
 
 // Expose for manual testing in browser console

@@ -1418,7 +1418,7 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
                             const defaultBgClass = 'bg-[var(--profile-button-background-color)]';
 
                             logger.info(`Marking button at index ${i} as active for profile ${profile.title}. Adding: ${activeBgClass}, ${activeTextClass}. Removing: ${inactiveTextClass}. Current classes: ${button.className}`);
-                            console.log(`[text-white APPLY] btn=${i} path=assignment-match profile="${profile.title}" assignedTitle="${assignedProfileRecord.profile.title}" alreadyHasTextWhite=${button.classList.contains('text-white')}`);
+                            logger.debug(`[text-white APPLY] btn=${i} path=assignment-match profile="${profile.title}" assignedTitle="${assignedProfileRecord.profile.title}" alreadyHasTextWhite=${button.classList.contains('text-white')}`);
                             button.classList.add(activeBgClass, activeTextClass);
                             button.classList.remove(inactiveTextClass, defaultTextClass, defaultBgClass);
                             logger.info(`Button ${i} classes after change: ${button.className}`);
@@ -1432,7 +1432,7 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
 
                             logger.info(`Marking button ${i} as inactive. Removing: ${activeBgClass}, ${activeTextClass}. Adding: ${inactiveTextClass}. Current classes: ${button.className}`);
                             if (button.classList.contains('text-white')) {
-                                console.log(`[text-white REMOVE] btn=${i} path=assignment-mismatch activeProfile="${profile.title}" assignedTitle="${assignedProfileRecord?.profile?.title}"`);
+                                logger.debug(`[text-white REMOVE] btn=${i} path=assignment-mismatch activeProfile="${profile.title}" assignedTitle="${assignedProfileRecord?.profile?.title}"`);
                             }
                             button.classList.remove(activeBgClass, activeTextClass);
                             button.classList.add(inactiveTextClass, defaultTextClass, defaultBgClass);
@@ -1448,7 +1448,7 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
 
                         logger.info(`Button ${i} has no assignment. Removing: ${activeBgClass}, ${activeTextClass}. Adding: ${inactiveTextClass}. Current classes: ${button.className}`);
                         if (button.classList.contains('text-white')) {
-                            console.log(`[text-white REMOVE] btn=${i} path=no-assignment activeProfile="${profile.title}"`);
+                            logger.debug(`[text-white REMOVE] btn=${i} path=no-assignment activeProfile="${profile.title}"`);
                         }
                         button.classList.remove(activeBgClass, activeTextClass);
                         button.classList.add(inactiveTextClass, defaultTextClass, defaultBgClass);
@@ -1472,14 +1472,14 @@ if (assignedProfileRecord && assignedProfileRecord.profile &&
 
                     if (buttonText === profileTitle) {
                         logger.info(`[FALLBACK] Marking button ${index} as active for profile ${profileTitle}. Adding: bg-[var(--mimoja-blue-v2)], text-white. Current classes: ${btn.className}`);
-                        console.log(`[text-white APPLY] btn=${index} path=fallback-text-match buttonText="${buttonText}" profile="${profileTitle}" alreadyHasTextWhite=${btn.classList.contains('text-white')}`);
+                        logger.debug(`[text-white APPLY] btn=${index} path=fallback-text-match buttonText="${buttonText}" profile="${profileTitle}" alreadyHasTextWhite=${btn.classList.contains('text-white')}`);
                         btn.classList.add(activeBgClass, activeTextClass);
                         btn.classList.remove(inactiveTextClass, defaultTextClass, defaultBgClass);
                         logger.info(`[FALLBACK] Button ${index} classes after change: ${btn.className}`);
                     } else {
                         logger.info(`[FALLBACK] Marking button ${index} as inactive. Removing: bg-[var(--mimoja-blue-v2)], text-white. Adding: text-[var(--mimoja-blue)]. Current classes: ${btn.className}`);
                         if (btn.classList.contains('text-white')) {
-                            console.log(`[text-white REMOVE] btn=${index} path=fallback-text-mismatch buttonText="${buttonText}" activeProfile="${profileTitle}"`);
+                            logger.debug(`[text-white REMOVE] btn=${index} path=fallback-text-mismatch buttonText="${buttonText}" activeProfile="${profileTitle}"`);
                         }
                         btn.classList.remove(activeBgClass, activeTextClass);
                         btn.classList.add(inactiveTextClass, defaultTextClass, defaultBgClass);
@@ -1966,7 +1966,7 @@ const EXT = '[ext-link]';
 // Boot banner — confirms this build is live on the device and whether we're in
 // the host webview (host injects window.__DECENT_HOST__).
 try {
-    console.log(EXT, 'init', JSON.stringify({
+    logger.debug(EXT, 'init', JSON.stringify({
         origin: location.origin,
         href: location.href,
         isWebview: !!window.__DECENT_HOST__,
@@ -1974,14 +1974,14 @@ try {
         ua: navigator.userAgent,
     }));
 } catch (err) {
-    console.log(EXT, 'init log failed:', err && err.message);
+    logger.debug(EXT, 'init log failed:', err && err.message);
 }
 
 // Log raw taps too, so we can see whether the gesture reaches document at all
 // (rules out touch/SPA handlers swallowing the click before it bubbles here).
 document.addEventListener('pointerup', (e) => {
     const a = e.target && e.target.closest && e.target.closest('a[href]');
-    if (a) console.log(EXT, 'pointerup over a[href]:', a.getAttribute('href'));
+    if (a) logger.debug(EXT, 'pointerup over a[href]:', a.getAttribute('href'));
 }, true); // capture phase — fires even if a later handler stops propagation
 
 document.addEventListener('click', (e) => {
@@ -1989,25 +1989,25 @@ document.addEventListener('click', (e) => {
     if (!link) return;
     const rawHref = link.getAttribute('href'); // as authored in the DOM
     const href = link.href;                    // resolved absolute URL
-    console.log(EXT, 'click on a[href]', JSON.stringify({
+    logger.debug(EXT, 'click on a[href]', JSON.stringify({
         rawHref, href, target: link.target || '(none)',
         defaultPrevented: e.defaultPrevented,
     }));
 
-    if (e.defaultPrevented) { console.log(EXT, 'skip: default already prevented upstream'); return; }
-    if (!/^https?:\/\//i.test(href)) { console.log(EXT, 'skip: not http(s):', href); return; }
+    if (e.defaultPrevented) { logger.debug(EXT, 'skip: default already prevented upstream'); return; }
+    if (!/^https?:\/\//i.test(href)) { logger.debug(EXT, 'skip: not http(s):', href); return; }
     if (href.startsWith(location.origin + '/') || href === location.origin) {
-        console.log(EXT, 'skip: internal (same-origin):', href);
+        logger.debug(EXT, 'skip: internal (same-origin):', href);
         return;
     }
 
-    console.log(EXT, 'external -> driving top-level navigation:', href);
+    logger.debug(EXT, 'external -> driving top-level navigation:', href);
     e.preventDefault();
     try {
         window.location.assign(href); // host's shouldOverrideUrlLoading -> launchUrl -> OS browser
-        console.log(EXT, 'location.assign called (no throw). If no browser opened, the host/device handled it — likely no browser app or launchUrl failed.');
+        logger.debug(EXT, 'location.assign called (no throw). If no browser opened, the host/device handled it — likely no browser app or launchUrl failed.');
     } catch (err) {
-        console.log(EXT, 'location.assign threw:', err && err.message);
+        logger.debug(EXT, 'location.assign threw:', err && err.message);
     }
 });
 
@@ -2033,7 +2033,9 @@ function wireExpandedChart() {
 
 document.addEventListener('DOMContentLoaded', async () => {
     try {
-        setDebug(true);
+        // ponytail: debug logging is a real cost on slow tablet CPUs (A9 etc)
+        // when it fires per-WS-tick. Gate on localStorage flag, off by default.
+        setDebug(localStorage.getItem('streamline.debugLogging') === 'true');
         logger.info('App DOMContentLoaded: Starting initialization.');
 
         chart.initChart();

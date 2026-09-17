@@ -501,7 +501,7 @@ export async function resetActiveProfileToDefaults() {
 }
 
 export async function saveGrindToActiveProfile(grindValue) {
-    console.log(`[saveGrindToActiveProfile] grindValue=${grindValue} activeProfileId=${activeProfileId} profileFound=${!!availableProfiles[activeProfileId]}`);
+    logger.debug(`[saveGrindToActiveProfile] grindValue=${grindValue} activeProfileId=${activeProfileId} profileFound=${!!availableProfiles[activeProfileId]}`);
     return saveContextToActiveProfile({ grinderSetting: String(grindValue) });
 }
 

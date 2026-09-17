@@ -168,6 +168,15 @@ const chartData = JSON.parse(JSON.stringify(baseChartData));
 // ============================================================================
 let expandedOpen = false;      // overlay currently visible
 let expandedInited = false;    // Plotly.newPlot done since last open (containers were 0-size)
+// ponytail: renderExpandedCharts does two full Plotly.react redraws (layout
+// range can change every frame, so unlike the main chart it can't drop to
+// Plotly.update). Riding the main chart's rAF flush would redraw 3 charts
+// every WS frame — fine on desktop, visibly slow on weak tablet GPUs (A9).
+// The overlay is a trend view, not a precision instrument: cap it to 5fps
+// independent of how often the main chart flushes. Raise if a tablet still
+// lags; drop the cap entirely if profiling shows it no longer matters.
+const EXPANDED_REDRAW_MIN_INTERVAL_MS = 200;
+let lastExpandedRenderTime = 0;
 let expandedTopYMax = EXP_TOP_FLOOR;  // damped, monotonic-within-shot top-axis max
 let helpBtnPrevDisplay = '';   // help FAB display value to restore when overlay closes
 // Bumped whenever expandedSeries mutates; drives layout.datarevision. The
@@ -529,7 +538,7 @@ function flushChart() {
             'xaxis.dtick': dtickValue
         });
         appliedRangeMax = rangeMax;
-        if (expandedOpen) renderExpandedCharts();
+        if (expandedOpen) renderExpandedCharts(true); // step marker — draw now, not throttled
         return;
     }
 
@@ -631,7 +640,7 @@ function rebuildExpandedFromChartData(mixSeries = null, mixTargetSeries = null) 
         expandedSeries.targetMixTemp.y = mixTargetSeries.y.slice();
     }
     expandedDataRev++;
-    if (expandedOpen) renderExpandedCharts();
+    if (expandedOpen) renderExpandedCharts(true); // historical reload — draw now, not throttled
 }
 
 function expandedAxisColors(theme) {
@@ -731,11 +740,16 @@ function expandedTempTraces() {
     return traces;
 }
 
-function renderExpandedCharts() {
+function renderExpandedCharts(force = false) {
     if (!expandedOpen) return;
     const topEl = document.getElementById('expanded-flow-chart');
     const tempEl = document.getElementById('expanded-temp-chart');
     if (!topEl || !tempEl) return;
+    // Skip only the throttled, already-inited, still-live case — a fresh plot,
+    // a step marker, or a historical rebuild must draw immediately regardless.
+    const now = performance.now();
+    if (!force && expandedInited && now - lastExpandedRenderTime < EXPANDED_REDRAW_MIN_INTERVAL_MS) return;
+    lastExpandedRenderTime = now;
     const theme = localStorage.getItem('theme') || 'light';
     const cfg = { displayModeBar: false, responsive: true, staticPlot: false };
     expandedTopYMax = computeExpandedTopYMax(
@@ -1491,7 +1505,7 @@ export function initChart() {
     // Deliberately not awaited: initChart draws nothing (see the comment below),
     // it only reads the DOM and installs listeners.
     loadPlotly().catch(e => logger.error('Plotly failed to load:', e));
-    console.log('initChart: Starting chart initialization');
+    logger.debug('initChart: Starting chart initialization');
 
     const element = getChartElement();
     if (!element) {
@@ -1499,9 +1513,9 @@ export function initChart() {
         return;
     }
 
-    console.log('initChart: chartElement found, offsetParent:', element.offsetParent !== null);
-    console.log('initChart: chartElement visibility:', window.getComputedStyle ? window.getComputedStyle(element).visibility : 'unknown');
-    console.log('initChart: chartElement display:', window.getComputedStyle ? window.getComputedStyle(element).display : 'unknown');
+    logger.debug('initChart: chartElement found, offsetParent:', element.offsetParent !== null);
+    logger.debug('initChart: chartElement visibility:', window.getComputedStyle ? window.getComputedStyle(element).visibility : 'unknown');
+    logger.debug('initChart: chartElement display:', window.getComputedStyle ? window.getComputedStyle(element).display : 'unknown');
 
     const theme = localStorage.getItem('theme') || 'light';
     updateChartColors(theme); // Apply theme-specific colors
@@ -1518,27 +1532,27 @@ export function initChart() {
     // there's actual data to show, by which point scaling has settled.
 
     let resizeTimeout;
-    console.log('initChart: Adding resize event listener');
+    logger.debug('initChart: Adding resize event listener');
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
             if (!window.Plotly) return;   // nothing drawn yet -- nothing to resize
             const resizeElement = getChartElement();
-            console.log('initChart: Window resize event, checking chart visibility');
+            logger.debug('initChart: Window resize event, checking chart visibility');
             if (resizeElement && resizeElement.offsetParent !== null) {
-                console.log('initChart: Chart element is visible, attempting resize');
+                logger.debug('initChart: Chart element is visible, attempting resize');
                 try {
                     Plotly.Plots.resize(resizeElement);
                     // Recompute label range against the now-visible width — fixes
                     // bogus ranges left over from a live tick that fired while
                     // the chart was hidden (clientWidth = 0).
                     refreshLabelMargin();
-                    console.log('initChart: Chart resized successfully');
+                    logger.debug('initChart: Chart resized successfully');
                 } catch (error) {
                     console.warn('Could not resize chart, element may not be visible:', error);
                 }
             } else {
-                console.log('initChart: Chart element not visible or not found, skipping resize');
+                logger.debug('initChart: Chart element not visible or not found, skipping resize');
             }
         }, 100);
     });
@@ -1584,7 +1598,7 @@ export function initChart() {
         refreshLabelMargin();
     });
 
-    console.log('initChart: Chart initialization completed');
+    logger.debug('initChart: Chart initialization completed');
 }
 
 export function setTheme(theme) {

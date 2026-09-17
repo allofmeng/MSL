@@ -507,9 +507,9 @@ function scrollItemIntoList(container, item) {
 }
 
 function updateSelectedProfileView(profileItem) {
-    console.log('updateSelectedProfileView: Updating selected profile view');
+    logger.debug('updateSelectedProfileView: Updating selected profile view');
     if (!profileItem) {
-        console.log('updateSelectedProfileView: No profile item, clearing view');
+        logger.debug('updateSelectedProfileView: No profile item, clearing view');
         // Clear the view if nothing is selected
         const titleElement = document.getElementById('selected_profile_name');
         if (titleElement) {
@@ -524,7 +524,7 @@ function updateSelectedProfileView(profileItem) {
         return;
     }
 
-    console.log('updateSelectedProfileView: Profile item found:', profileItem.textContent);
+    logger.debug('updateSelectedProfileView: Profile item found:', profileItem.textContent);
     // Update title — prefer explicit data attr so badge/decoration text doesn't leak in
     const profileTitle = profileItem.dataset.profileTitle
         || availableProfiles[profileItem.dataset.profileKey]?.profile?.title
@@ -532,29 +532,29 @@ function updateSelectedProfileView(profileItem) {
     const titleElement = document.getElementById('selected_profile_name');
     if (titleElement) {
         titleElement.textContent = getTranslation(profileTitle);
-        console.log('updateSelectedProfileView: Updated profile name to', profileTitle);
+        logger.debug('updateSelectedProfileView: Updated profile name to', profileTitle);
     }
     selectedProfileKey = profileItem.dataset.profileKey;
-    console.log('updateSelectedProfileView: Selected profile key set to', selectedProfileKey);
+    logger.debug('updateSelectedProfileView: Selected profile key set to', selectedProfileKey);
 
     const profileRecord = availableProfiles[selectedProfileKey];
-    console.log('updateSelectedProfileView: Profile record found:', !!profileRecord);
+    logger.debug('updateSelectedProfileView: Profile record found:', !!profileRecord);
 
     if (profileRecord && profileRecord.profile) {
         const profile = profileRecord.profile;
-        console.log('updateSelectedProfileView: Updating with profile:', profile.title);
+        logger.debug('updateSelectedProfileView: Updating with profile:', profile.title);
         // Update notes
         const notesElement = document.getElementById('profile_notes');
         if (notesElement) {
             notesElement.innerHTML = `<p>${profile.notes || 'No notes for this profile.'}</p>`;
-            console.log('updateSelectedProfileView: Updated profile notes');
+            logger.debug('updateSelectedProfileView: Updated profile notes');
         }
 
         // Update chart
-        console.log('updateSelectedProfileView: Calling plotProfile with profile data');
+        logger.debug('updateSelectedProfileView: Calling plotProfile with profile data');
         plotProfile(profile);
     } else {
-        console.log('updateSelectedProfileView: Profile record or profile data not found');
+        logger.debug('updateSelectedProfileView: Profile record or profile data not found');
     }
 }
 
@@ -625,7 +625,7 @@ function showProfileContextMenu(key, profileRecord, anchorEl) {
 }
 
 function renderProfiles() {
-    console.log('renderProfiles: Starting to render profiles, isShowingHidden =', isShowingHidden);
+    logger.debug('renderProfiles: Starting to render profiles, isShowingHidden =', isShowingHidden);
     logger.info('Profile Editor: Rendering profiles...');
     try {
         const container = document.getElementById('profile-list');
@@ -635,10 +635,10 @@ function renderProfiles() {
             return;
         }
         container.innerHTML = ''; // Clear static content
-        console.log('renderProfiles: Container cleared');
+        logger.debug('renderProfiles: Container cleared');
 
         const profileEntries = Object.entries(availableProfiles);
-        console.log('renderProfiles: Available profiles count:', profileEntries.length);
+        logger.debug('renderProfiles: Available profiles count:', profileEntries.length);
 
         const sortedProfiles = profileEntries.sort(([, a], [, b]) => {
             if (a.profile && a.profile.title && b.profile && b.profile.title) {
@@ -648,7 +648,7 @@ function renderProfiles() {
         });
 
         if (sortedProfiles.length === 0) {
-            console.log('renderProfiles: No profiles to render');
+            logger.debug('renderProfiles: No profiles to render');
             container.textContent = 'No profiles found.';
             updateSelectedProfileView(null); // Clear right panel
             return;
@@ -668,14 +668,14 @@ function renderProfiles() {
             if (!profile) return;
 
             const isHidden = profileRecord.visibility === 'hidden';
-            console.log('renderProfiles: Processing profile', profile.title, 'isHidden:', isHidden);
+            logger.debug('renderProfiles: Processing profile', profile.title, 'isHidden:', isHidden);
 
             if (!isShowingHidden && isHidden) {
-                console.log('renderProfiles: Skipping hidden profile', profile.title);
+                logger.debug('renderProfiles: Skipping hidden profile', profile.title);
                 return;
             }
             visibleProfileCount++;
-            console.log('renderProfiles: Adding profile to list', profile.title);
+            logger.debug('renderProfiles: Adding profile to list', profile.title);
 
             const div = document.createElement('div');
             div.className = 'p-3 text-[30px] cursor-pointer flex justify-between items-center no-select';
@@ -726,7 +726,7 @@ function renderProfiles() {
 
                 unhideButton.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    console.log('renderProfiles: Unhide button clicked for profile', key);
+                    logger.debug('renderProfiles: Unhide button clicked for profile', key);
                     await unhideProfileEntry(key);
                     renderProfiles();
                 });
@@ -774,7 +774,7 @@ function renderProfiles() {
             }
 
             div.addEventListener('click', (e) => {
-                console.log('renderProfiles: Profile item clicked:', profile.title);
+                logger.debug('renderProfiles: Profile item clicked:', profile.title);
                 const clickedItem = e.currentTarget;
 
                 const allItems = clickedItem.parentElement.querySelectorAll('[data-profile-key]');
@@ -818,7 +818,7 @@ function renderProfiles() {
             defaultsList.forEach(renderProfileItem);
         }
 
-        console.log('renderProfiles: Total visible profiles:', visibleProfileCount);
+        logger.debug('renderProfiles: Total visible profiles:', visibleProfileCount);
         if (visibleProfileCount > 0 && !selectedProfileKey) {
             // Which entry the page opens on, in order of what the user just did:
             //   1. came back from the editor  -> the profile they were editing
@@ -938,9 +938,9 @@ async function initFavoriteButtons() {
 }
 
 function initDeleteButton() {
-    console.log('initDeleteButton: Starting initialization');
+    logger.debug('initDeleteButton: Starting initialization');
     const deleteButton = document.getElementById('delete_profile');
-    console.log('initDeleteButton: deleteButton found:', !!deleteButton);
+    logger.debug('initDeleteButton: deleteButton found:', !!deleteButton);
     if (!deleteButton) {
         console.error('initDeleteButton: delete_profile button not found');
         return;
@@ -955,16 +955,16 @@ function initDeleteButton() {
     const button = newDeleteButton;
 
     button.addEventListener('click', async () => {
-        console.log('initDeleteButton: Delete button clicked');
+        logger.debug('initDeleteButton: Delete button clicked');
         if (!selectedProfileKey) {
-            console.log('initDeleteButton: No profile selected');
+            logger.debug('initDeleteButton: No profile selected');
             showToast("No profile selected to delete.", 3000, 'error');
             return;
         }
 
         const profileRecord = availableProfiles[selectedProfileKey];
         if (!profileRecord || !profileRecord.profile) {
-            console.log('initDeleteButton: Profile record or data missing');
+            logger.debug('initDeleteButton: Profile record or data missing');
             showToast("Cannot delete profile: data missing.", 3000, 'error');
             return;
         }
@@ -974,13 +974,13 @@ function initDeleteButton() {
             ? `Are you sure you want to hide '${profile.title}'?`
             : `Are you sure you want to permanently delete '${profile.title}'?`;
 
-        console.log('initDeleteButton: Showing confirmation dialog');
+        logger.debug('initDeleteButton: Showing confirmation dialog');
         if (!confirm(confirmationText)) {
-            console.log('initDeleteButton: Confirmation cancelled');
+            logger.debug('initDeleteButton: Confirmation cancelled');
             return;
         }
 
-        console.log('initDeleteButton: Proceeding with delete/hide operation');
+        logger.debug('initDeleteButton: Proceeding with delete/hide operation');
         const keyToActOn = selectedProfileKey; // Preserve key
 
         await deleteOrHideProfile(keyToActOn);
@@ -992,24 +992,24 @@ function initDeleteButton() {
             const itemToReselect = container.querySelector(`[data-profile-key="${keyToActOn}"]`);
             if (itemToReselect) {
                 // Clicking it will handle selection style and update the right pane view
-                console.log('initDeleteButton: Re-selecting item after delete/hide');
+                logger.debug('initDeleteButton: Re-selecting item after delete/hide');
                 itemToReselect.click();
             } else {
                 // The item was deleted, not hidden, so clear the view
-                console.log('initDeleteButton: Item was deleted, clearing view');
+                logger.debug('initDeleteButton: Item was deleted, clearing view');
                 updateSelectedProfileView(null);
             }
         }
     });
-    console.log('initDeleteButton: Event listener attached');
+    logger.debug('initDeleteButton: Event listener attached');
 }
 
 function initViewButton() {
-    console.log('initViewButton: Starting initialization');
+    logger.debug('initViewButton: Starting initialization');
     const viewButton = document.getElementById('view_profile');
     const page_title = document.getElementById("page_title");
-    console.log('initViewButton: viewButton found:', !!viewButton);
-    console.log('initViewButton: page_title found:', !!page_title);
+    logger.debug('initViewButton: viewButton found:', !!viewButton);
+    logger.debug('initViewButton: page_title found:', !!page_title);
 
     if (!viewButton) {
         console.error('initViewButton: view_profile button not found');
@@ -1028,10 +1028,10 @@ function initViewButton() {
     button.innerHTML = getEyeIconSVG('#385a92'); // Blue icon
     button.classList.remove("bg-[var(--mimoja-blue)]");
     button.classList.add("bg-[var(--button-grey)]"); // Use CSS variable for background
-    console.log('initViewButton: Initial state set');
+    logger.debug('initViewButton: Initial state set');
 
     button.addEventListener('click', () => {
-        console.log('initViewButton: View button clicked, toggling isShowingHidden');
+        logger.debug('initViewButton: View button clicked, toggling isShowingHidden');
         isShowingHidden = !isShowingHidden;
 
         if (isShowingHidden) {
@@ -1043,7 +1043,7 @@ function initViewButton() {
             if (page_title) {
                 page_title.textContent = "All Profiles";
             }
-            console.log('initViewButton: Now showing hidden profiles');
+            logger.debug('initViewButton: Now showing hidden profiles');
         } else {
             // State: HIDING hidden profiles -> default background, blue icon
             button.innerHTML = getEyeIconSVG('#385a92');
@@ -1053,24 +1053,24 @@ function initViewButton() {
             if (page_title) {
                 page_title.textContent = "Profiles";
             }
-            console.log('initViewButton: Now hiding hidden profiles');
+            logger.debug('initViewButton: Now hiding hidden profiles');
         }
 
         // Force a reflow to ensure style changes are applied
         button.offsetHeight;
 
-        console.log('initViewButton: Calling renderProfiles');
+        logger.debug('initViewButton: Calling renderProfiles');
         renderProfiles();
     });
-    console.log('initViewButton: Event listener attached');
+    logger.debug('initViewButton: Event listener attached');
 }
 
 function initSearchButton() {
-    console.log('initSearchButton: Starting initialization');
+    logger.debug('initSearchButton: Starting initialization');
     const searchButton = document.getElementById('search_profile');
     const deleteButton = document.getElementById('delete_profile');
-    console.log('initSearchButton: searchButton found:', !!searchButton);
-    console.log('initSearchButton: deleteButton found:', !!deleteButton);
+    logger.debug('initSearchButton: searchButton found:', !!searchButton);
+    logger.debug('initSearchButton: deleteButton found:', !!deleteButton);
 
     if (!searchButton) {
         console.error('initSearchButton: search_profile button not found');
@@ -1094,12 +1094,12 @@ function initSearchButton() {
     button.innerHTML = `<svg class="w-[36px] h-[36px]" viewBox="0 0 66 66" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M30.25 52.25C42.4003 52.25 52.25 42.4003 52.25 30.25C52.25 18.0997 42.4003 8.25 30.25 8.25C18.0997 8.25 8.25 18.0997 8.25 30.25C8.25 42.4003 18.0997 52.25 30.25 52.25Z" stroke="#385A92" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M57.7498 57.7508L45.9248 45.9258" stroke="#385A92" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`; // Blue icon
     button.classList.remove("bg-[var(--mimoja-blue)]");
     button.classList.add("bg-[var(--button-grey)]"); // Use CSS variable for background
-    console.log('initSearchButton: Initial state set');
+    logger.debug('initSearchButton: Initial state set');
 
     let searchInput = null;
 
     button.addEventListener('click', () => {
-        console.log('initSearchButton: Search button clicked, toggling search mode');
+        logger.debug('initSearchButton: Search button clicked, toggling search mode');
         isSearching = !isSearching;
 
         if (isSearching) {
@@ -1147,7 +1147,7 @@ function initSearchButton() {
                     // Set new timeout to debounce search
                     searchTimeout = setTimeout(() => {
                         const searchTerm = e.target.value.toLowerCase();
-                        console.log('initSearchButton: Searching for:', searchTerm);
+                        logger.debug('initSearchButton: Searching for:', searchTerm);
 
                         // Filter profiles based on search term
                         filterProfiles(searchTerm);
@@ -1159,7 +1159,7 @@ function initSearchButton() {
                 // Enter as a fallback for keyboards that send it instead.
                 const runSearchAndDismiss = (e) => {
                     const searchTerm = e.target.value.toLowerCase();
-                    console.log('initSearchButton: Searching for (search key):', searchTerm);
+                    logger.debug('initSearchButton: Searching for (search key):', searchTerm);
                     filterProfiles(searchTerm);
                     searchInput.blur();
                 };
@@ -1183,13 +1183,13 @@ function initSearchButton() {
             exitSearchMode();
         }
     });
-    console.log('initSearchButton: Event listener attached');
+    logger.debug('initSearchButton: Event listener attached');
 }
 
 function exitSearchMode(originalTitle = null) {
     const searchButton = document.getElementById('search_profile');
     const page_title = document.getElementById("page_title");
-    console.log('exitSearchMode: Exiting search mode');
+    logger.debug('exitSearchMode: Exiting search mode');
 
     // Reset the global search state
     isSearching = false;
@@ -1229,7 +1229,7 @@ function highlightTitle(text, term) {
 }
 
 function filterProfiles(searchTerm) {
-    console.log('filterProfiles: Filtering profiles for term:', searchTerm);
+    logger.debug('filterProfiles: Filtering profiles for term:', searchTerm);
 
     const container = document.getElementById('profile-list');
     if (!container) {
@@ -1263,7 +1263,7 @@ function filterProfiles(searchTerm) {
     });
 
     if (sortedProfiles.length === 0) {
-        console.log('filterProfiles: No profiles match the search term');
+        logger.debug('filterProfiles: No profiles match the search term');
         container.textContent = 'No profiles found.';
         updateSelectedProfileView(null); // Clear right panel
         return;
@@ -1275,7 +1275,7 @@ function filterProfiles(searchTerm) {
         if (!profile) continue;
 
         const isHidden = profileRecord.visibility === 'hidden';
-        console.log('filterProfiles: Adding profile to filtered list', profile.title, 'isHidden:', isHidden);
+        logger.debug('filterProfiles: Adding profile to filtered list', profile.title, 'isHidden:', isHidden);
 
         const div = document.createElement('div');
         div.className = 'p-3 text-[30px] cursor-pointer flex justify-between items-center no-select';
@@ -1311,7 +1311,7 @@ function filterProfiles(searchTerm) {
 
             unhideButton.addEventListener('click', async (e) => {
                 e.stopPropagation();
-                console.log('filterProfiles: Unhide button clicked for profile', key);
+                logger.debug('filterProfiles: Unhide button clicked for profile', key);
                 await unhideProfileEntry(key);
                 filterProfiles(searchTerm); // Re-filter after unhiding
             });
@@ -1321,7 +1321,7 @@ function filterProfiles(searchTerm) {
         }
 
         div.addEventListener('click', (e) => {
-            console.log('filterProfiles: Profile item clicked:', profile.title);
+            logger.debug('filterProfiles: Profile item clicked:', profile.title);
             const clickedItem = e.currentTarget;
 
             const allItems = clickedItem.parentElement.querySelectorAll('[data-profile-key]');
@@ -1359,13 +1359,13 @@ function filterProfiles(searchTerm) {
     // Clear selection since we're in search mode
     selectedProfileKey = null;
 
-    console.log('filterProfiles: Added', sortedProfiles.length, 'profiles to filtered list');
+    logger.debug('filterProfiles: Added', sortedProfiles.length, 'profiles to filtered list');
 }
 
 
 // Main initialization function that can be called externally
 export async function initializeProfileSelector() {
-    console.log('initializeProfileSelector: Starting initialization');
+    logger.debug('initializeProfileSelector: Starting initialization');
 
     // Reset the selected profile key to ensure first profile gets selected on page load
     selectedProfileKey = null;
@@ -1385,7 +1385,7 @@ export async function initializeProfileSelector() {
         .catch(e => logger.warn('Could not read the loaded profile', e));
 
     translatePage();
-    console.log('initializeProfileSelector: i18n translated');
+    logger.debug('initializeProfileSelector: i18n translated');
 
     // Suppress browser-default selection/long-press/drag/callout across the whole
     // profile-selector page. Delegated listeners on the root also cover items
@@ -1422,7 +1422,7 @@ export async function initializeProfileSelector() {
     }
 
     const profileLoadStatus = await profilePromise;
-    console.log('initializeProfileSelector: Profile manager initialized, status:', profileLoadStatus);
+    logger.debug('initializeProfileSelector: Profile manager initialized, status:', profileLoadStatus);
 
     if (profileLoadStatus?.profilesFrom === 'API') {
         logger.info('Profiles loaded successfully from API.');
@@ -1432,7 +1432,7 @@ export async function initializeProfileSelector() {
         showToast('Error: Could not load any profiles.', 3000, 'error');
     }
 
-    console.log('initializeProfileSelector: Rendering profiles...');
+    logger.debug('initializeProfileSelector: Rendering profiles...');
     renderProfiles();
 
     // Clear cached credentials so we always get fresh data
@@ -1444,7 +1444,7 @@ export async function initializeProfileSelector() {
     // Wire up add profile button
     const originalAddProfileButton = document.getElementById('add_profile');
     if (originalAddProfileButton) {
-        console.log('initializeProfileSelector: Setting up add profile button');
+        logger.debug('initializeProfileSelector: Setting up add profile button');
         // Remove any existing click listeners to prevent duplicates
         const newAddProfileButton = originalAddProfileButton.cloneNode(true);
         originalAddProfileButton.parentNode.replaceChild(newAddProfileButton, originalAddProfileButton);
@@ -1521,13 +1521,13 @@ export async function initializeProfileSelector() {
     // For now, we'll just add the listener - the event system should handle multiple similar listeners gracefully
     document.addEventListener('profiles-updated', () => {
         logger.info('Received profiles-updated event, re-rendering profile list.');
-        console.log('initializeProfileSelector: profiles-updated event received, re-rendering profiles');
+        logger.debug('initializeProfileSelector: profiles-updated event received, re-rendering profiles');
         renderProfiles();
     });
 
-    console.log('initializeProfileSelector: Initializing resizable panels');
+    logger.debug('initializeProfileSelector: Initializing resizable panels');
     initResizablePanels('separator');
-    console.log('initializeProfileSelector: Setting up confirm button');
+    logger.debug('initializeProfileSelector: Setting up confirm button');
     const confirmBtn = document.getElementById('confirm-profile-btn');
     if (confirmBtn) {
         // Remove any existing click listeners to prevent duplicates
@@ -1536,7 +1536,7 @@ export async function initializeProfileSelector() {
         newConfirmBtn.addEventListener('click', handleConfirm);
     }
 
-    console.log('initializeProfileSelector: Setting up cancel button');
+    logger.debug('initializeProfileSelector: Setting up cancel button');
     const cancelBtn = document.getElementById('cancel-profile-btn');
     if (cancelBtn) {
         // Remove any existing click listeners to prevent duplicates
@@ -1544,15 +1544,15 @@ export async function initializeProfileSelector() {
         cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
         newCancelBtn.addEventListener('click', handleCancel);
     }
-    console.log('initializeProfileSelector: Initializing delete button');
+    logger.debug('initializeProfileSelector: Initializing delete button');
     initDeleteButton();
-    console.log('initializeProfileSelector: Initializing view button');
+    logger.debug('initializeProfileSelector: Initializing view button');
     initViewButton();
-    console.log('initializeProfileSelector: Initializing favorite buttons');
+    logger.debug('initializeProfileSelector: Initializing favorite buttons');
     await initFavoriteButtons();
-    console.log('initializeProfileSelector: Initializing search button');
+    logger.debug('initializeProfileSelector: Initializing search button');
     initSearchButton();
-    console.log('initializeProfileSelector: Initializing fullscreen handler');
+    logger.debug('initializeProfileSelector: Initializing fullscreen handler');
     initFullscreenHandler();
 
 
@@ -1564,20 +1564,20 @@ export async function initializeProfileSelector() {
     })() : null;
     if (editProfileBtn) {
         editProfileBtn.addEventListener('click', () => {
-            console.log('[EditBtn] clicked. selectedProfileKey=', selectedProfileKey);
+            logger.debug('[EditBtn] clicked. selectedProfileKey=', selectedProfileKey);
             if (!selectedProfileKey) {
                 showToast('Select a profile first', 3000, 'error');
                 return;
             }
             const profileRecord = availableProfiles[selectedProfileKey];
-            console.log('[EditBtn] profileRecord=', profileRecord);
+            logger.debug('[EditBtn] profileRecord=', profileRecord);
             if (!profileRecord) {
                 console.warn('[EditBtn] profileRecord is null/undefined, aborting');
                 return;
             }
-            console.log('[EditBtn] Setting window.__pendingEditProfile and navigating...');
+            logger.debug('[EditBtn] Setting window.__pendingEditProfile and navigating...');
             window.__pendingEditProfile = profileRecord;
-            console.log('[EditBtn] window.__pendingEditProfile set:', window.__pendingEditProfile?.profile?.title);
+            logger.debug('[EditBtn] window.__pendingEditProfile set:', window.__pendingEditProfile?.profile?.title);
             loadPage('src/profiles/profile_editor.html');
         });
     } else {
@@ -1681,7 +1681,7 @@ export async function initializeProfileSelector() {
     }
 
     await initAiGenerateButton();
-    console.log('initializeProfileSelector: Initialization complete');
+    logger.debug('initializeProfileSelector: Initialization complete');
 }
 
 async function initAiGenerateButton() {

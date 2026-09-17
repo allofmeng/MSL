@@ -1,3 +1,5 @@
+import { logger } from './logger.js';
+
 let isInitialScaleDone = false; // module-level: only first initScaling call adds .scaled
 
 export function initScaling() {
@@ -220,22 +222,22 @@ export function initScaling() {
     
     // Also listen for orientation changes which can affect viewport dimensions
     window.addEventListener('orientationchange', () => {
-        console.log('Orientation change event detected');
+        logger.debug('Orientation change event detected');
         // Multiple updates with increasing delays to handle Firefox and other browsers
         // that may take time to report correct viewport dimensions
         setTimeout(() => {
-            console.log('First scale update after orientation change');
+            logger.debug('First scale update after orientation change');
             updateScale();
             updateRotationPrompt();
         }, 200);
         
         setTimeout(() => {
-            console.log('Second scale update after orientation change');
+            logger.debug('Second scale update after orientation change');
             updateScale();
         }, 500);
         
         setTimeout(() => {
-            console.log('Final scale update after orientation change');
+            logger.debug('Final scale update after orientation change');
             updateScale();
         }, 800);
     });

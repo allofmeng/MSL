@@ -4,12 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<!-- Everything this page runs and shows is inside this file, and it talks to
-     nothing: no scripts, styles, images, fonts or fetches come from anywhere.
-     So the policy is "nothing", with inline allowed because the whole page is
-     inline. connect-src 'none' is the load-bearing one — it means that even a
-     bug in the decoder could not send a reader's profile anywhere. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<!-- Everything this page runs and shows is inside this file: no scripts,
+     styles, images or fonts come from anywhere else, inline allowed because
+     the whole page is inline. connect-src is the one opening: "Send to
+     Decaid" POSTs the decoded profile to the Decaid gateway on the *same
+     device* the page is running on (loopback only), so a friend scanning
+     your QR code on their own tablet can push it straight in instead of
+     download-then-upload. It only fires on that explicit tap. Every other
+     host stays unreachable — this is not a general-purpose connect-src. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; connect-src http://localhost:* http://127.0.0.1:* http://[::1]:*; form-action 'none'; base-uri 'none'">
 <title>Shared espresso profile</title>
 <style>
   :root {
@@ -99,7 +102,13 @@
   </div>
 
   <div id="actions" hidden>
-    <a id="download" class="btn" download>Download profile (.json)</a>
+    <!-- Only meaningful when this page is open on the same device Decaid is
+         running on (e.g. a friend scanned your QR code on their own tablet).
+         Hitting a different device's gateway isn't possible from here — see
+         the CSP comment above. -->
+    <button id="send-decaid" class="btn" type="button">Send to Decaid on this device</button>
+    <p id="send-decaid-status" class="hint" hidden></p>
+    <a id="download" class="btn ghost" download>Download profile (.json)</a>
     <!-- Only shown when the profile arrived as a de1app .tcl: it hands back the
          original file, byte for byte, for anyone still running de1app. -->
     <a id="download-tcl" class="btn ghost" download hidden>Download original (.tcl)</a>
@@ -107,9 +116,9 @@
     <!-- de1app reads the two formats from two different folders and does not
          look outside them, so naming the path is the difference between a
          profile that appears in the list and one that silently does not. -->
-    <p id="actions-hint" class="hint">Import it in your skin: <strong>Profiles → upload</strong>. Copying it in by
-       hand instead? A <code>.json</code> profile goes in <code>de1plus/profiles_v2</code>. Everything happens on this
-       page, in your browser — nothing is uploaded to a server.</p>
+    <p id="actions-hint" class="hint">Not on the same device as Decaid? Download it, then import in your skin:
+       <strong>Profiles → upload</strong>. Copying it in by hand instead? A <code>.json</code> profile goes in
+       <code>de1plus/profiles_v2</code>. Nothing leaves this page unless you tap "Send to Decaid".</p>
   </div>
 
   <div id="share" class="card" hidden>
@@ -1308,6 +1317,42 @@ function describeTarget(step) {
     return pressure === null ? '—' : `${pressure} bar`;
 }
 
+// Two loopback spellings because browsers vary in which one they resolve
+// fastest/at all; trying both costs nothing since one always fails instantly.
+const DECAID_HOSTS = ['http://localhost:8080', 'http://127.0.0.1:8080'];
+
+// POST is the whole point of the CSP opening above: this only works because
+// Decaid's gateway is on the *same device* as the browser running this page.
+async function sendToDecaid(profile) {
+    const btn = $('send-decaid');
+    const status = $('send-decaid-status');
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    status.hidden = true;
+    let lastError = null;
+    for (const base of DECAID_HOSTS) {
+        try {
+            const res = await fetch(`${base}/api/v1/profiles`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ profile }),
+            });
+            if (!res.ok) throw new Error(`Decaid rejected the profile (HTTP ${res.status}).`);
+            btn.textContent = 'Sent to Decaid';
+            status.textContent = 'Saved — find it under Profiles in your skin.';
+            status.hidden = false;
+            return;
+        } catch (e) {
+            lastError = e;
+        }
+    }
+    btn.disabled = false;
+    btn.textContent = 'Send to Decaid on this device';
+    status.textContent = `Could not reach Decaid on this device — make sure it's running here, `
+        + `then try again. (${lastError?.message || lastError})`;
+    status.hidden = false;
+}
+
 let downloadUrl = null;
 let tclDownloadUrl = null;
 // The .tcl case rewrites this to explain the two files; a later render of a
@@ -1328,6 +1373,9 @@ function reset() {
     $('share-url').hidden = true;
     $('qr').hidden = true;
     $('copy').textContent = 'Copy JSON';
+    $('send-decaid').disabled = false;
+    $('send-decaid').textContent = 'Send to Decaid on this device';
+    $('send-decaid-status').hidden = true;
     $('download-tcl').hidden = true;
     $('actions-hint').innerHTML = DEFAULT_ACTIONS_HINT;
     if (downloadUrl) { URL.revokeObjectURL(downloadUrl); downloadUrl = null; }
@@ -1406,7 +1454,8 @@ function render(profile, warnings = [], tcl = null) {
         tclLink.href = tclDownloadUrl;
         tclLink.download = `${stem}.tcl`;
         tclLink.hidden = false;
-        $('actions-hint').innerHTML = '<code>.json</code> for a v2 skin, <code>.tcl</code> for de1app. '
+        $('actions-hint').innerHTML = '"Send to Decaid" always sends the <code>.json</code> conversion. '
+            + 'Downloading instead: <code>.json</code> for a v2 skin, <code>.tcl</code> for de1app. '
             + 'Copying by hand: <code>.tcl</code> → <code>de1plus/profiles</code>, '
             + '<code>.json</code> → <code>de1plus/profiles_v2</code>.';
     }
@@ -1421,6 +1470,7 @@ function render(profile, warnings = [], tcl = null) {
             $('copy').textContent = 'Copy failed — long-press the Download button instead';
         }
     };
+    $('send-decaid').onclick = () => sendToDecaid(profile);
     $('actions').hidden = false;
     $('upload').hidden = false;
     // The .tcl travels on unchanged, so the next reader gets the same choice.
