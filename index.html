@@ -35,6 +35,9 @@
          fragment, and the router does not load CSS for the HTML it splices in,
          so an async sheet would land after the page is already on screen. -->
     <link href="src/css/profile-editor.css" rel="stylesheet" type="text/css" />
+    <!-- Same reasoning as profile-editor.css above: shot_overview.html is a
+         router fragment too, so this must already be loaded before it's spliced in. -->
+    <link href="src/css/shot-overview.css" rel="stylesheet" type="text/css" />
     <!-- numpad-modal / time-picker-modal / context-menu / notes-modal /
          help-overlay CSS used to block the first paint here (~35 KB for five
          sheets) even though none of it styles anything visible at boot. They
@@ -384,7 +387,7 @@
         <div id="subpage-host" style="display:none;"></div>
 
         <!-- Full-screen expanded live charts (opened by tapping the main chart) -->
-        <div id="expanded-chart-overlay" style="display:none; position:absolute; top:0; left:0; width:1920px; height:100%; z-index:60; background:var(--bgmain-color); flex-direction:column;" role="dialog" aria-modal="true" aria-label="Expanded live charts">
+        <div id="expanded-chart-overlay" style="display:none; position:absolute; top:0; left:0; width:1920px; height:100%; z-index:60; background:var(--bgmain-color); flex-direction:column; touch-action:none;" role="dialog" aria-modal="true" aria-label="Expanded live charts">
             <div style="height:96px; flex:0 0 96px; display:flex; align-items:center; justify-content:space-between; padding:0 44px; border-bottom:1px solid var(--border-color);">
                 <button id="expanded-chart-back" aria-label="Back to main screen" style="display:flex; align-items:center; gap:16px; background:transparent; border:none; cursor:pointer; padding:10px 14px; margin-left:-14px; border-radius:14px;">
                     <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--mimoja-blue)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>

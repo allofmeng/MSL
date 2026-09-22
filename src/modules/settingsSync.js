@@ -45,6 +45,7 @@ export const SYNCED_KEYS = [
     'tempUnit',
     'uiZoom',
     'maxStretch',
+    'chartSize',
     'keyboardBindings',
     'streamlineHelpHidden',
     'streamlineHelpLaunches',

@@ -17,6 +17,7 @@ function getPageUrlFromQuery() {
         'settings': 'src/settings/settings.html',
         'profile_selector': 'src/profiles/profile_selector.html',
         'profile_editor': 'src/profiles/profile_editor.html',
+        'shot_overview': 'src/history/shot_overview.html',
     };
     return pageMap[page] || null;
 }
@@ -177,6 +178,15 @@ export async function loadPage(pageUrl) {
                 }
             } catch (e) {
                 console.error('Router: Error importing settings page:', e);
+            }
+        } else if (pageUrl.includes('shot_overview.html')) {
+            try {
+                const { initializeShotOverview } = await import('./shot_overview.js');
+                if (initializeShotOverview) {
+                    initializeShotOverview().catch(e => console.error('Router: Shot overview init error:', e));
+                }
+            } catch (e) {
+                console.error('Router: Error importing shot overview page:', e);
             }
         }
     } catch (error) {

@@ -48,3 +48,10 @@ test('tablet menus use larger rows, bottom sheets and focus restoration', () => 
     assert.match(css, /context-menu--bottom-sheet/);
     assert.match(css, /#sub-categories-separator::after[\s\S]*width: 48px/);
 });
+
+test('expanded chart overlay blocks pinch-zoom of the page', () => {
+    // The overlay's Plotly axes are fixedrange, so a pinch on the chart zooms the
+    // whole WebView page instead, and nothing resets it on return to the index.
+    const html = read('index.html');
+    assert.match(html, /id="expanded-chart-overlay"[^>]*touch-action:\s*none/);
+});

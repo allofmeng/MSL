@@ -21,6 +21,20 @@ export function niceCeil(v) {
     return Math.ceil(v / 10) * 10;
 }
 
+/** Main (embedded) chart Y axis never shrinks below this. */
+export const MAIN_Y_FLOOR = 10;
+
+// Main-chart Y max: the fixed 0..10 axis until any line goes over 10, then the
+// next clean tick above the peak (10.3 -> 12). Stateless, so a cleared chart or a
+// new shot falls straight back to 10 with no reset hook to forget.
+export function computeMainYMax(seriesYs) {
+    let m = 0;
+    for (const ys of seriesYs) {
+        for (let i = 0; i < ys.length; i++) { if (ys[i] > m) m = ys[i]; }
+    }
+    return m <= MAIN_Y_FLOOR ? MAIN_Y_FLOOR : niceCeil(m);
+}
+
 // Damped top-axis max. `seriesYs` is a list of y-arrays (real units); `prevYMax`
 // is the previous damped value the caller stored. Grows instantly so peaks stay
 // visible; eases back down at most 2 units per call, and only once the need has
@@ -78,4 +92,23 @@ export function computeExpandedTempRange(targetTempYs, groupTempYs, mixTempYs = 
     hi = Math.min(EXP_TEMP_MAX, hi);            // ...except the hard 105 °C ceiling
     if (lo > hi - 5) lo = hi - 5;               // keep a sane minimum span if capped
     return [Math.floor(lo), Math.ceil(hi)];
+}
+
+// ---- Chart size (Settings > Display Size > Chart Size) ----------------------
+/** No chart font is ever pushed past this by the size option. */
+export const CHART_FONT_MAX = 25;
+export const CHART_SIZES = {
+    normal: { font: 1,    line: 1 },
+    large:  { font: 1.15, line: 1.5 },
+    xlarge: { font: 1.3,  line: 2 },
+};
+
+export function chartSizeFactors(level) {
+    return CHART_SIZES[level] || CHART_SIZES.normal;
+}
+
+// Grow a font, capped at CHART_FONT_MAX, but never shrink one that is already
+// bigger (the expanded overlay's 26px legend stays as designed).
+export function scaleChartFont(base, factor) {
+    return Math.max(base, Math.min(CHART_FONT_MAX, Math.round(base * factor)));
 }

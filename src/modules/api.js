@@ -1974,6 +1974,17 @@ export async function getShots(options = {}) {
     return response.json();
 }
 
+// Single full shot record (includes `measurements`, unlike the /shots list
+// endpoint). Used by the Shot overview page to backfill duration for shots
+// that only have list-summary data cached.
+export async function getShotById(id) {
+    const response = await fetch(`${API_BASE_URL}/shots/${id}`);
+    if (!response.ok) {
+        throw new Error(`Failed to get shot ${id}`);
+    }
+    return response.json();
+}
+
 export async function updateShot(id, shotData) {
     const response = await fetch(`${API_BASE_URL}/shots/${id}`, {
         method: 'PUT',

@@ -2337,6 +2337,7 @@ export function renderUnitsSettings() {
     `;
 }
 
+const CHART_SIZE_LABELS = { normal: 'Normal', large: 'Large', xlarge: 'Extra Large' };
 const UI_ZOOM_MAP = { 'Small': '0.85', 'Medium': '1.0', 'Large': '1.15', 'Extra Large': '1.3' };
 
 function getUiZoomLabel() {
@@ -2348,6 +2349,10 @@ export function renderFontSizeSettings() {
     const current = getUiZoomLabel();
     const options = Object.keys(UI_ZOOM_MAP).map(label =>
         `<option${label === current ? ' selected' : ''}>${label}</option>`
+    ).join('');
+    const chartSize = localStorage.getItem('chartSize') || 'normal';
+    const chartSizeOptions = Object.entries(CHART_SIZE_LABELS).map(([value, label]) =>
+        `<option value="${value}"${value === chartSize ? ' selected' : ''} data-i18n-key="${label}">${label}</option>`
     ).join('');
     return `
         <div class="content-stretch flex flex-col gap-[60px] items-start relative w-full">
@@ -2369,12 +2374,29 @@ export function renderFontSizeSettings() {
                         Adjust the display size for better readability. Changes apply after saving.
                     </p>
                 </div>
+                <div class="content-stretch flex flex-col gap-[30px] items-start relative w-full mt-[60px]">
+                    <div class="content-stretch flex items-center justify-between relative w-full">
+                        <div class="flex flex-col font-['Inter:Bold',sans-serif] font-bold justify-center leading-[0] not-italic relative text-[#385a92] text-[30px]">
+                            <p class="leading-[1.2]" data-i18n-key="Chart Size">Chart Size</p>
+                        </div>
+                        <select id="chart-size-select" class="bg-[#385a92] border-2 border-[#385a92] border-solid h-[62.88px] rounded-[2617.374px] w-[220px] text-white text-[24px] p-2">
+                            ${chartSizeOptions}
+                        </select>
+                    </div>
+                    <p class="font-['Inter:Regular',sans-serif] font-normal leading-[1.4] not-italic relative text-[var(--text-primary)] text-[24px] w-full" data-i18n-key="Thicker chart lines and larger chart text (up to 25 px). Applies the next time a chart is drawn.">
+                        Thicker chart lines and larger chart text (up to 25 px). Applies the next time a chart is drawn.
+                    </p>
+                </div>
             </div>
         </div>
     `;
 }
 
 function initFontSizeSettings() {
+    // Read by chart.js on every draw; the chart repaints when Settings closes.
+    document.getElementById('chart-size-select')?.addEventListener('change', (e) => {
+        localStorage.setItem('chartSize', e.target.value);
+    });
     const select = document.getElementById('text-size-select');
     if (!select) return;
     select.addEventListener('change', (e) => {

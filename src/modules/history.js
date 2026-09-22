@@ -7,6 +7,7 @@ import { getTranslation } from './i18n.js';
 import { generateShotSummary } from './shotSummary.js';
 import { openContextMenu } from './context-menu.js';
 import { showToast, setupPressAndHold } from './ui.js';
+import { loadPage } from './router.js';
 
 const DEREK_URL = 'https://derek.decentespresso.com/';
 
@@ -310,9 +311,10 @@ async function copyMd(md) {
     showToast(getTranslation(ok ? 'Summary copied to clipboard' : 'Could not copy summary'), 2400, ok ? 'success' : 'error');
 }
 
-// Long-press the shot history panel -> options menu. Reuses the shared
-// setupPressAndHold helper (same one profile cards use). The nav arrows stop
-// their own press from bubbling so navigation taps still work.
+// Short tap on the shot history panel -> Shot overview sub-page. Long-press
+// -> options menu. Reuses the shared setupPressAndHold helper (same one
+// profile cards use). The nav arrows stop their own press from bubbling so
+// navigation taps still work.
 //
 // We build the summary up front so both actions act on a ready string: "Discuss
 // with Derek" is a link item (anchor) — the user's tap opens the OS browser with
@@ -321,16 +323,20 @@ function setupHistoryLongPress() {
     const panel = document.getElementById('shot-history-panel');
     if (!panel) return;
 
-    // Stop BOTH press and release from reaching the panel. Release matters on
+    // Stop press, release AND click from reaching the panel. Release matters on
     // touch: the panel's press-and-hold endPress preventDefaults touchend,
     // which suppresses the button's synthetic click — arrows dead on tablets.
+    // click is stopped too now that the panel's own click opens a sub-page:
+    // without it, a tap on an arrow still bubbles a click up to the panel
+    // (stopping touchend/mouseup doesn't stop the separate click event the
+    // platform fires afterwards) and would navigate away instead of stepping.
     ['history-prev-btn', 'history-next-btn'].forEach((id) => {
         const btn = document.getElementById(id);
-        ['mousedown', 'touchstart', 'pointerdown', 'mouseup', 'touchend', 'pointerup'].forEach((ev) =>
+        ['mousedown', 'touchstart', 'pointerdown', 'mouseup', 'touchend', 'pointerup', 'click'].forEach((ev) =>
             btn?.addEventListener(ev, (e) => e.stopPropagation()));
     });
 
-    setupPressAndHold(panel, () => {}, async () => {
+    setupPressAndHold(panel, () => loadPage('src/history/shot_overview.html'), async () => {
         const md = await buildCurrentShotSummary();
         if (md == null) return;
         openContextMenu(panel, [

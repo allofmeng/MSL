@@ -1,7 +1,7 @@
 import { logger } from './logger.js';
 import { getTranslation } from './i18n.js';
 import { hasMachineGFlow, createScaleFlowResolver, createPourPhaseTracker } from './historical-gflow.js';
-import { EXP_TOP_FLOOR, computeExpandedTopYMax, computeExpandedTempRange } from './chart-autoscale.js';
+import { EXP_TOP_FLOOR, MAIN_Y_FLOOR, computeMainYMax, chartSizeFactors, scaleChartFont, computeExpandedTopYMax, computeExpandedTempRange } from './chart-autoscale.js';
 import { loadPlotly, whenPlotly } from './vendor-loader.js';
 
 // Plotly is 4.7 MB and is now fetched on demand instead of blocking first paint
@@ -266,8 +266,8 @@ const labelColors = {
     }
 };
 
-const LABEL_FONT_SIZE = 16;
-const LABEL_FONT_CSS = `${LABEL_FONT_SIZE}px Inter, sans-serif`;
+const BASE_LABEL_FONT_SIZE = 16;
+const labelFontSize = () => scaleChartFont(BASE_LABEL_FONT_SIZE, chartFactors().font);
 const LABEL_X_GAP = 6;     // px between line end and label text
 const LABEL_X_PAD = 10;    // px breathing room past the widest label
 
@@ -277,7 +277,7 @@ function measureTextWidth(text) {
         const canvas = document.createElement('canvas');
         _measureCanvasCtx = canvas.getContext('2d');
     }
-    _measureCanvasCtx.font = LABEL_FONT_CSS;
+    _measureCanvasCtx.font = `${labelFontSize()}px Inter, sans-serif`;
     return _measureCanvasCtx.measureText(text).width;
 }
 
@@ -300,12 +300,12 @@ function getPlotPixelHeight() {
     return usable > 100 ? usable : DEFAULT_PLOT_PX_HEIGHT;
 }
 
-const MIN_LABEL_SEP_PX = LABEL_FONT_SIZE + 2; // minimum vertical gap between label centers
+const minLabelSepPx = () => labelFontSize() + 2; // minimum vertical gap between label centers
 const BOTTOM_EDGE_PAD_PX = 8;
 
 // Y-axis is fixed [0, 10]. Returns label's natural pixel offset from plot top.
 function dataYToPixelY(y, plotPxHeight) {
-    return (10 - y) / 10 * plotPxHeight;
+    return (mainYMax - y) / mainYMax * plotPxHeight;
 }
 
 // Push labels apart vertically when they collide. Mutates `annotations` by
@@ -323,7 +323,7 @@ function applyLabelCollisionAvoidance(annotations) {
 
     let prevPxY = -Infinity;
     for (const item of items) {
-        let desired = Math.max(item.naturalPxY, prevPxY + MIN_LABEL_SEP_PX);
+        let desired = Math.max(item.naturalPxY, prevPxY + minLabelSepPx());
         if (desired > maxPxY) desired = maxPxY;
         const shiftDownPx = desired - item.naturalPxY;
         if (shiftDownPx > 0) item.annotation.yshift = -shiftDownPx;
@@ -371,7 +371,7 @@ function getAnnotations() {
             xshift: LABEL_X_GAP,
             font: {
                 color: (labelColors[theme] && labelColors[theme][traceName]) ? labelColors[theme][traceName] : trace.line.color,
-                size: LABEL_FONT_SIZE
+                size: labelFontSize()
             }
         });
     }
@@ -380,10 +380,42 @@ function getAnnotations() {
     return annotations;
 }
 
+// Y axis grows past the default 0..10 once any line goes over 10 (e.g. pressure
+// 11 bar). dtick 1 -> 2 above 10 so the ticks don't crowd. Every draw path goes
+// through applyLabelLayout, so the range can't be left stale by one of them.
+// `weight` is left out: it's scale-derived weight flow, and with no server
+// weightFlow the local fallback spikes when a cup is set down or knocked
+// mid-shot -- one 40 g/s frame would rescale the axis to 0..40 for the rest
+// of the shot. That spike may run off the top, as it did on the fixed axis.
+let mainYMax = MAIN_Y_FLOOR;
+function mainYAxisUpdate() {
+    mainYMax = computeMainYMax(Object.entries(chartData).filter(([k]) => k !== 'weight').map(([, t]) => t.y));
+    return { 'yaxis.range': [0, mainYMax], 'yaxis.dtick': mainYMax > MAIN_Y_FLOOR ? 2 : 1 };
+}
+function applyMainYAxis(layout) {
+    const u = mainYAxisUpdate();
+    layout.yaxis = { ...layout.yaxis, range: u['yaxis.range'], dtick: u['yaxis.dtick'] };
+}
+
+// Settings > Display Size > Chart Size ('normal' | 'large' | 'xlarge'), read on
+// every draw so a change applies the next time the chart repaints.
+function chartFactors() {
+    return chartSizeFactors(localStorage.getItem('chartSize'));
+}
+const BASE_LINE_WIDTH = 2; // Plotly's default, which the main-chart traces rely on
+const BASE_TICK_FONT = 20;
+function applyChartStyle(layout) {
+    const f = chartFactors();
+    layout.font = { ...layout.font, size: scaleChartFont(BASE_TICK_FONT, f.font) };
+    for (const t of Object.values(chartData)) t.line = { ...t.line, width: BASE_LINE_WIDTH * f.line };
+}
+
 // Apply current labels + restore default right margin. Use before
 // Plotly.newPlot / Plotly.react. No labels while a shot is live — only once
 // it's done (see isLiveShot below).
 function applyLabelLayout(layout) {
+    applyMainYAxis(layout);
+    applyChartStyle(layout);
     layout.annotations = isLiveShot ? [] : getAnnotations();
     layout.margin = { ...(layout.margin || {}), r: 50 };
 }
@@ -553,7 +585,8 @@ function flushChart() {
         {
             'xaxis.range': [0, rangeMax],
             'xaxis.autorange': false,
-            'xaxis.dtick': dtickValue
+            'xaxis.dtick': dtickValue,
+            ...mainYAxisUpdate()
         },
         traces.map((_, i) => i)
     );
@@ -655,10 +688,11 @@ function expandedAxisColors(theme) {
 
 function expandedLayout(theme, yRange, isTemp) {
     const c = expandedAxisColors(theme);
+    const ff = chartFactors().font;
     return {
         paper_bgcolor: c.paper,
         plot_bgcolor: c.paper,
-        font: { color: c.font, size: 18 },
+        font: { color: c.font, size: scaleChartFont(18, ff) },
         // Overlay geometry. The legend is the chart's key and it is read at
         // arm's length from the machine, so it runs at font 26 rather than the
         // 15 used in the embedded charts. margin.t 88 is explicit room for that
@@ -673,7 +707,7 @@ function expandedLayout(theme, yRange, isTemp) {
         xaxis: {
             gridcolor: c.grid, linecolor: c.line, tickcolor: c.line,
             fixedrange: true, autorange: true, zeroline: false,
-            title: isTemp ? { text: 'seconds', font: { size: 15 } } : undefined,
+            title: isTemp ? { text: 'seconds', font: { size: scaleChartFont(15, ff) } } : undefined,
         },
         yaxis: {
             gridcolor: c.grid, linecolor: c.line, tickcolor: c.line,
@@ -696,7 +730,7 @@ function expandedLayout(theme, yRange, isTemp) {
         // y 1.07 with yanchor 'bottom': the gap below the legend is (y - 1) x the
         // plot height, so 1.07 keeps the legend close to the chart it labels now
         // that it is taller. The air above it comes from margin.t instead.
-        legend: { orientation: 'h', y: 1.07, yanchor: 'bottom', x: 0, xanchor: 'left', font: { size: 26 } },
+        legend: { orientation: 'h', y: 1.07, yanchor: 'bottom', x: 0, xanchor: 'left', font: { size: scaleChartFont(26, ff) } },
         autosize: true,
         // Data arrays are mutated in place, so Plotly.react's reference diff
         // sees "unchanged" — datarevision is Plotly's documented remedy and is
@@ -706,25 +740,27 @@ function expandedLayout(theme, yRange, isTemp) {
 }
 
 function expandedTopTraces() {
+    const lw = chartFactors().line;
     const s = expandedSeries;
     return [
-        { x: s.pressure.x, y: s.pressure.y, name: getTranslation('Pressure (bar)'), mode: 'lines', line: { color: '#17c29a', width: 3 }, hoverinfo: 'skip' },
-        { x: s.flow.x, y: s.flow.y, name: getTranslation('Flow (ml/s)'), mode: 'lines', line: { color: '#0358cf', width: 3 }, hoverinfo: 'skip' },
-        { x: s.gflow.x, y: s.gflow.y, name: getTranslation('GFlow (g/s)'), mode: 'lines', line: { color: '#C7A58D', width: 3 }, hoverinfo: 'skip' },
-        { x: s.targetPressure.x, y: s.targetPressure.y, name: getTranslation('Target Pressure'), mode: 'lines', line: { color: '#8fd3bf', dash: 'dot', width: 2 }, hoverinfo: 'skip' },
-        { x: s.targetFlow.x, y: s.targetFlow.y, name: getTranslation('Target Flow'), mode: 'lines', line: { color: '#7fa8ec', dash: 'dot', width: 2 }, hoverinfo: 'skip' },
+        { x: s.pressure.x, y: s.pressure.y, name: getTranslation('Pressure (bar)'), mode: 'lines', line: { color: '#17c29a', width: 3 * lw }, hoverinfo: 'skip' },
+        { x: s.flow.x, y: s.flow.y, name: getTranslation('Flow (ml/s)'), mode: 'lines', line: { color: '#0358cf', width: 3 * lw }, hoverinfo: 'skip' },
+        { x: s.gflow.x, y: s.gflow.y, name: getTranslation('GFlow (g/s)'), mode: 'lines', line: { color: '#C7A58D', width: 3 * lw }, hoverinfo: 'skip' },
+        { x: s.targetPressure.x, y: s.targetPressure.y, name: getTranslation('Target Pressure'), mode: 'lines', line: { color: '#8fd3bf', dash: 'dot', width: 2 * lw }, hoverinfo: 'skip' },
+        { x: s.targetFlow.x, y: s.targetFlow.y, name: getTranslation('Target Flow'), mode: 'lines', line: { color: '#7fa8ec', dash: 'dot', width: 2 * lw }, hoverinfo: 'skip' },
     ];
 }
 
 function expandedTempTraces() {
+    const lw = chartFactors().line;
     const s = expandedSeries;
     const traces = [
-        { x: s.groupTemp.x, y: s.groupTemp.y, name: `${getTranslation('Group')} °C`, mode: 'lines', line: { color: '#ff97a1', width: 3 }, hoverinfo: 'skip' },
+        { x: s.groupTemp.x, y: s.groupTemp.y, name: `${getTranslation('Group')} °C`, mode: 'lines', line: { color: '#ff97a1', width: 3 * lw }, hoverinfo: 'skip' },
         // Amber, CVD-validated against the group pink (worst ΔE 14.7, ≥12 req);
         // solid 3px = "actual" convention (targets are the dotted ones).
-        { x: s.mixTemp.x, y: s.mixTemp.y, name: `${getTranslation('Mix')} °C`, mode: 'lines', line: { color: '#d9822b', width: 3 }, hoverinfo: 'skip' },
+        { x: s.mixTemp.x, y: s.mixTemp.y, name: `${getTranslation('Mix')} °C`, mode: 'lines', line: { color: '#d9822b', width: 3 * lw }, hoverinfo: 'skip' },
         // Two targets now, so "Target °C" would be ambiguous — say which is which.
-        { x: s.targetTemp.x, y: s.targetTemp.y, name: getTranslation('Group Target °C'), mode: 'lines', line: { color: '#f0b8bd', dash: 'dot', width: 2 }, hoverinfo: 'skip' },
+        { x: s.targetTemp.x, y: s.targetTemp.y, name: getTranslation('Group Target °C'), mode: 'lines', line: { color: '#f0b8bd', dash: 'dot', width: 2 * lw }, hoverinfo: 'skip' },
     ];
     // Mix target: the amber lightened toward white the same way the group target
     // is a lightened group pink, thin + dashed = the "target, not measurement"
@@ -734,7 +770,7 @@ function expandedTempTraces() {
     if (s.targetMixTemp.y.length) {
         traces.push({
             x: s.targetMixTemp.x, y: s.targetMixTemp.y, name: getTranslation('Mix Target °C'), mode: 'lines',
-            line: { color: '#e8b480', dash: 'dash', width: 2 }, hoverinfo: 'skip',
+            line: { color: '#e8b480', dash: 'dash', width: 2 * lw }, hoverinfo: 'skip',
         });
     }
     return traces;
@@ -777,6 +813,9 @@ export function openExpandedChart() {
     if (!window.Plotly) return whenPlotly(() => openExpandedChart());
     const overlay = document.getElementById('expanded-chart-overlay');
     if (!overlay) return;
+    // Re-entry (taps queued behind whenPlotly) would save the already-hidden
+    // help FAB as its "previous" display and never bring it back on close.
+    if (expandedOpen) return;
     expandedOpen = true;
     expandedInited = false; // containers were display:none (0-size) — force a fresh plot
     overlay.style.display = 'flex';
@@ -807,6 +846,10 @@ export function closeExpandedChart() {
     const t = document.getElementById('expanded-flow-chart');
     const b = document.getElementById('expanded-temp-chart');
     try { if (window.Plotly) { if (t) Plotly.purge(t); if (b) Plotly.purge(b); } } catch (e) { /* nothing to purge */ }
+    // The tap that opened the overlay left a hover label on the main chart; touch
+    // never sends mouseleave, so it would still be there on return.
+    const main = getChartElement();
+    try { if (window.Plotly && isPlotted(main)) Plotly.Fx.unhover(main); } catch (e) { /* not plotted */ }
     expandedInited = false;
 }
 
@@ -1010,6 +1053,8 @@ export function clearChart() {
 
     const theme = localStorage.getItem('theme') || 'light';
     const layout = theme === 'dark' ? darkLayout : lightLayout;
+    applyMainYAxis(layout);
+    applyChartStyle(layout);
 
     const element = getChartElement();
     if (!element) {
@@ -1439,6 +1484,8 @@ export function plotProfile(profile) {
         addStepMarker(layout, boundary, theme, '');
     }
     layout.xaxis.range = [0, currentTime];
+    // Own data, not the live chart's: the copied layout may carry that chart's grown range.
+    layout.yaxis.range = [0, computeMainYMax([tpY, tfY, tempY])];
 
     // Adaptive X-axis tick density based on profile duration
     let xDtick;
@@ -1460,18 +1507,18 @@ export function plotProfile(profile) {
     const targetPressureTrace = plotData.find(trace => trace.name === 'Target Pressure');
     if (targetPressureTrace) {
         targetPressureTrace.line.dash = 'solid';
-        targetPressureTrace.line.width = 5;
+        targetPressureTrace.line.width = 5 * chartFactors().line;
     }
 
     const targetFlowTrace = plotData.find(trace => trace.name === 'Target Flow');
     if (targetFlowTrace) {
         targetFlowTrace.line.dash = 'solid';
-        targetFlowTrace.line.width = 5;
+        targetFlowTrace.line.width = 5 * chartFactors().line;
     }
 
     const groupTempTrace = plotData.find(trace => trace.name === '°C');
     if (groupTempTrace) {
-        groupTempTrace.line.width = 5;
+        groupTempTrace.line.width = 5 * chartFactors().line;
     }
 
     const element = getChartElement();
