@@ -1,0 +1,63 @@
+<div id="scaled-content">
+<div id="pe-root" class="pe" role="main" aria-label="Profile Editor">
+
+    <!-- Header: name on the left, actions on the right. -->
+    <div id="subpage-header" class="pe-header">
+        <div class="pe-title-wrap">
+            <button id="editor-title-display" class="pe-title" type="button" aria-label="Rename profile">
+                <span id="editor-title-text">Untitled Profile</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>
+            </button>
+            <input id="editor-title-input" type="text" class="pe-title-input hidden" aria-label="Profile name" />
+            <span id="editor-subtitle" class="pe-subtitle"></span>
+        </div>
+
+        <button id="editor-history-btn" class="pe-btn pe-btn--icon hidden" title="Version" aria-label="Version history">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+        </button>
+        <button id="editor-cancel-btn" class="pe-btn" data-i18n-key="Cancel">Cancel</button>
+        <button id="editor-save-btn" class="pe-btn pe-btn--primary" data-i18n-key="Save">Save</button>
+    </div>
+
+    <!-- Body: steps | selected step | live preview + shot settings.
+         All three are on screen at once — the old editor split them across
+         three tabs, so you could never see the curve you were editing. -->
+    <div class="pe-body">
+
+        <!-- Left: the shot as an ordered list of steps -->
+        <div class="pe-col">
+            <div class="pe-col-head">
+                <span class="pe-col-title" data-i18n-key="Steps">Steps</span>
+                <span id="pe-step-count" class="pe-subtitle"></span>
+            </div>
+            <div class="pe-scroll">
+                <div id="pe-step-list" class="pe-steps"></div>
+                <button id="pe-add-step" class="pe-add" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                    <span data-i18n-key="Insert a step">Insert a step</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Centre: everything about the one step you picked -->
+        <div class="pe-col">
+            <div class="pe-col-head">
+                <span id="pe-editor-heading" class="pe-col-title">Step</span>
+            </div>
+            <div id="pe-step-editor" class="pe-scroll"></div>
+        </div>
+
+        <!-- Right: what the machine will actually do, plus whole-shot settings -->
+        <div class="pe-col">
+            <div class="pe-col-head">
+                <span class="pe-col-title" data-i18n-key="Preview">Preview</span>
+            </div>
+            <div class="pe-scroll">
+                <div id="pe-graph" class="pe-graph"></div>
+                <div id="pe-stats" class="pe-stat-row"></div>
+                <div id="pe-shot-settings"></div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>

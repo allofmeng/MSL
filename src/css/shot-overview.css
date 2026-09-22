@@ -1,0 +1,355 @@
+/* Shot overview sub-page (src/history/shot_overview.html + shot_overview.js).
+ *
+ * app.css is pre-built Tailwind output (see CLAUDE.md) -- arbitrary-value
+ * utility classes only work if that exact string was already emitted into it.
+ * Everything below is either a layout size Tailwind never generated for this
+ * page (the 1100/820px columns, the 44px stat value) or a property Tailwind
+ * has no utility for at all (font-variant-numeric). Colors are all CSS
+ * variables shared with the rest of the skin (main.css / dark-mode.css) so
+ * this page gets dark mode for free without redefining anything here -- the
+ * one exception is the ratio plot's guide lines/dots, which read
+ * var(--border-color)/var(--accent-text) directly as SVG attributes at
+ * render time in shot_overview.js instead of through a class.
+ */
+
+#shot-overview-body {
+    /* 1200px design canvas minus the 150px header, like every other sub-page. */
+    height: 1050px;
+}
+
+#shot-overview-left {
+    width: 1100px;
+    background-color: var(--bgmain-color);
+}
+
+#shot-overview-right {
+    width: 820px;
+}
+
+/* shot_overview.js toggles Tailwind's `.hidden` to switch states and drop
+   empty sections. This file loads after app.css, so any rule here that sets
+   `display` (.so-placeholder, .so-section, ...) beat `.hidden` on equal
+   specificity -- the empty and load-failed messages both showed over real
+   data. The id raises specificity so hidden always wins on this page. */
+#shot-overview-page .hidden {
+    display: none;
+}
+
+/* The range pills share a flex row with the summary sentence. The "All"
+   sentence is the longest, and without these the row shrank the pill group
+   and wrapped "7 days" onto two lines. The sentence wraps instead. */
+#shot-overview-range {
+    flex-shrink: 0;
+}
+.so-range-btn {
+    white-space: nowrap;
+}
+
+.so-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+}
+
+.so-summary {
+    font-size: 40px;
+    font-weight: 600;
+    line-height: 48px;
+    /* Clamped to two lines so the longest range sentence (or a long
+       translation) can't grow the row. */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+}
+
+/* Fixed height = two summary lines. The row used to size to the sentence, so
+   switching to "All" (the longest sentence) wrapped to a second line and
+   pushed the stats, axis pickers and plot down. Now nothing below moves
+   whatever the sentence says. */
+#shot-overview-summary-row {
+    height: 104px;
+}
+
+.so-stats-row {
+    display: flex;
+    gap: 56px;
+    margin-top: 36px;
+    margin-bottom: 36px;
+    /* Tall enough for the tallest tile (Time: value+label+sparkline+note) so
+       nothing jumps between ranges/tiles -- reserves the optional "last N
+       shots" note under Time (only some ranges show it) and every tile's
+       sparkline (only shown at 3+ points). Was 120px before sparklines;
+       the plot below is shrunk by the same amount it grew (see .so-ratio-plot). */
+    height: 156px;
+}
+
+.so-stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.so-stat-value {
+    font-size: 44px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+    line-height: 1.15;
+}
+
+.so-stat-label {
+    font-size: 22px;
+    color: var(--data-card-title-text-color);
+}
+
+.so-stat-note {
+    font-size: 20px;
+    color: var(--data-card-title-text-color);
+    margin-top: 4px;
+}
+
+.so-sparkline {
+    width: 140px;
+    height: 36px;
+    display: block;
+    margin-top: 6px;
+}
+
+/* One line: "X axis [select]   Y axis [select]", label to the left of its
+   own select (was label-above-select, two lines per field) -- frees vertical
+   height, given to the plot below (see .so-ratio-plot/.so-plot-empty). */
+.so-axis-controls {
+    display: flex;
+    align-items: center;
+    gap: 40px;
+    margin-bottom: 16px;
+}
+
+.so-axis-field {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+}
+
+.so-axis-field label {
+    font-size: 22px;
+    color: var(--data-card-title-text-color);
+}
+
+.so-axis-select {
+    min-height: 72px;
+    min-width: 220px;
+    padding: 0 20px;
+    font-size: 24px;
+    color: var(--text-primary);
+    background-color: var(--bgmain-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+}
+
+/* X is locked to Date (and disabled) whenever Y = Shots per day -- dim it so
+   the lock reads as intentional rather than broken. */
+.so-axis-select:disabled {
+    opacity: 0.55;
+}
+
+/* Positions the tap callout (absolute) against the plot's actual rendered
+   box rather than the page -- see svgPointToContainerPixels() in
+   shot_overview.js, which measures through this element. */
+#shot-overview-plot-wrap {
+    position: relative;
+}
+
+/* Height budget: one-line axis pickers freed ~36px versus the old two-line
+   layout, then the stats row's sparklines gave most of it back (120px ->
+   156px). Net result lands close to the original 520px -- tuned, and
+   re-verified with #shot-overview-left's scrollHeight/clientHeight across
+   every range, to zero overflow (see PR notes for the measured numbers). */
+.so-ratio-plot {
+    width: 1004px;
+    height: 520px;
+}
+
+/* Same footprint as the plot it replaces, so swapping between them doesn't
+   jump the caption/right column around. */
+.so-plot-empty {
+    width: 1004px;
+    height: 520px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 24px;
+    color: var(--data-card-title-text-color);
+}
+
+.so-callout {
+    position: absolute;
+    z-index: 20;
+    max-width: 420px;
+    padding: 20px;
+    background: var(--bgmain-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    cursor: pointer; /* tapping the callout itself closes it */
+}
+
+.so-callout-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.so-callout-line {
+    font-size: 20px;
+    color: var(--text-primary);
+    margin-top: 4px;
+}
+
+.so-callout-notes {
+    font-size: 20px;
+    color: var(--text-primary);
+    margin-top: 10px;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
+}
+
+.so-plot-caption {
+    font-size: 20px;
+    margin-top: 12px;
+}
+
+.so-section {
+    padding-top: 24px;
+    padding-bottom: 24px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Applied by JS to whichever section ends up first among the *visible* ones
+   -- sections are hidden with .hidden rather than removed, so plain
+   :first-child would still land on a hidden section and leave a stray
+   top border on whatever renders first instead. */
+.so-section-first {
+    padding-top: 0;
+    border-top: none;
+}
+
+.so-section-title {
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+.so-section-note {
+    font-size: 20px;
+    color: var(--data-card-title-text-color);
+    margin-bottom: 12px;
+}
+
+.so-steam-value {
+    font-size: 24px;
+    color: var(--text-primary);
+}
+
+.so-row-primary {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    font-size: 24px;
+    color: var(--text-primary);
+}
+
+.so-row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.so-row-figure {
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.so-row-meta {
+    font-size: 20px;
+    color: var(--data-card-title-text-color);
+    margin-top: 2px;
+    margin-bottom: 14px;
+}
+
+.so-list-item:last-child .so-row-meta {
+    margin-bottom: 0;
+}
+
+/* Uniform spacing between rows regardless of whether a row carries a meta
+   line (beans do, profiles/grinders don't) -- .so-row-meta's own margin above
+   only covers the beans case. */
+.so-list-item + .so-list-item {
+    margin-top: 16px;
+}
+
+/* Shared bar-row (Profiles/Beans): name on top, a full-width track+fill+count
+   line below. Single-hue -- only .so-bar-fill reads --accent-text; the name
+   and count stay plain page text so the mark (the bar) is the only thing
+   colored, never the numbers. */
+.so-bar-row-name {
+    font-size: 24px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.so-bar-line {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.so-bar-track {
+    flex-grow: 1;
+    height: 12px;
+    border-radius: 4px;
+    background: var(--border-color);
+}
+
+.so-bar-fill {
+    height: 12px;
+    border-radius: 4px;
+    background: var(--accent-text);
+}
+
+.so-bar-count {
+    flex-shrink: 0;
+    font-size: 22px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-primary);
+}
+
+/* Grinder dot strip: fixed to #shot-overview-right's content width (see the
+   JS constants) since this page never reflows -- same convention as the
+   plot SVG's explicit width/height. */
+/* Fixed 772x100 clipped the labels: the right column's scrollbar leaves only
+   ~757px, and the flex column squashed the height to ~88px, so the viewBox
+   was letterboxed and text sitting on the edge got cut. Scale to the real
+   width with the viewBox's own aspect, never shrink, and let glyph
+   ascenders/descenders paint past the box edge. */
+.so-dotstrip {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 772 / 82; /* = DOT_STRIP_W / DOT_STRIP_H in shot_overview.js */
+    flex-shrink: 0;
+    overflow: visible;
+    display: block;
+}
