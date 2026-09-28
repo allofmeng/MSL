@@ -6,13 +6,16 @@
 <meta name="color-scheme" content="light dark">
 <!-- Everything this page runs and shows is inside this file: no scripts,
      styles, images or fonts come from anywhere else, inline allowed because
-     the whole page is inline. connect-src is the one opening: "Send to
-     Decaid" POSTs the decoded profile to the Decaid gateway on the *same
-     device* the page is running on (loopback only), so a friend scanning
-     your QR code on their own tablet can push it straight in instead of
-     download-then-upload. It only fires on that explicit tap. Every other
-     host stays unreachable — this is not a general-purpose connect-src. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; connect-src http://localhost:* http://127.0.0.1:* http://[::1]:*; form-action 'none'; base-uri 'none'">
+     the whole page is inline. connect-src has two openings: "Send to Decaid"
+     POSTs the decoded profile to the Decaid gateway on the *same device* the
+     page is running on (loopback only), so a friend scanning your QR code on
+     their own tablet can push it straight in instead of download-then-upload
+     — fires only on that explicit tap. 'self' is the short-link store
+     (server.js on this same app, see its POST /api/s) that "Share this
+     profile" uses to turn a long fragment link into a short one — fires only
+     when re-sharing a profile from this page. Every other host stays
+     unreachable — this is not a general-purpose connect-src. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; connect-src 'self' http://localhost:* http://127.0.0.1:* http://[::1]:*; form-action 'none'; base-uri 'none'">
 <title>Shared espresso profile</title>
 <style>
   :root {
@@ -1052,10 +1055,9 @@ const TRANSLATIONS = {
         'Share this profile': '分享此配置文件',
         'Copy share link': '复制分享链接',
         'Link copied': '链接已复制',
-        'The profile rides inside the link itself — nothing is uploaded. This one is too long to fit in a QR code, but the link works anywhere.':
-            '配置文件本身就藏在链接里——不会上传任何内容。这个链接太长，放不进二维码，但链接本身在任何地方都能用。',
-        'Point a camera at the code, or send the link. The profile rides inside the link itself — nothing is uploaded, and whoever opens it sees exactly this.':
-            '用相机扫码，或直接发送链接。配置文件本身就藏在链接里——不会上传任何内容，打开链接的人看到的就是你现在看到的这一切。',
+        'This one is too long to fit in a QR code, but the link works anywhere.':
+            '这个链接太长，放不进二维码，但链接本身在任何地方都能用。',
+        'Point a camera at the code, or send the link.': '用相机扫码，或直接发送链接。',
         'That link does not hold a profile — it unpacks to far more data than one could be.':
             '这个链接里没有配置文件——它解压出来的数据远超一个配置文件该有的大小。',
         'That link is damaged — it looks cut short. Scan the QR code again.': '这个链接已损坏——看起来被截断了。请重新扫描二维码。',
@@ -1113,10 +1115,9 @@ const TRANSLATIONS = {
         'Share this profile': '分享此設定檔',
         'Copy share link': '複製分享連結',
         'Link copied': '連結已複製',
-        'The profile rides inside the link itself — nothing is uploaded. This one is too long to fit in a QR code, but the link works anywhere.':
-            '設定檔本身就藏在連結裡——不會上傳任何內容。這個連結太長，放不進 QR code，但連結本身在任何地方都能用。',
-        'Point a camera at the code, or send the link. The profile rides inside the link itself — nothing is uploaded, and whoever opens it sees exactly this.':
-            '用相機掃描，或直接傳送連結。設定檔本身就藏在連結裡——不會上傳任何內容，開啟連結的人看到的就是你現在看到的這一切。',
+        'This one is too long to fit in a QR code, but the link works anywhere.':
+            '這個連結太長，放不進 QR code，但連結本身在任何地方都能用。',
+        'Point a camera at the code, or send the link.': '用相機掃描，或直接傳送連結。',
         'That link does not hold a profile — it unpacks to far more data than one could be.':
             '這個連結裡沒有設定檔——它解壓出來的資料遠超一個設定檔該有的大小。',
         'That link is damaged — it looks cut short. Scan the QR code again.': '這個連結已損壞——看起來被截斷了。請重新掃描 QR code。',
@@ -1261,8 +1262,26 @@ export async function encodePayload(text) {
     return toBase64Url(new Uint8Array(await new Response(stream).arrayBuffer()));
 }
 
-// QR byte mode at LOW ecc tops out here. Only used to warn: a link longer than
-// this is still a perfectly good link, it just cannot be photographed.
+// Same short-link store server.js on this app adds for the skin's own share
+// flow (src/modules/qrShare.js) — POST the fragment once, get an id back,
+// `/s/<id>` redirects to `/#<fragment>` so nothing on this page needs to
+// change to read it. Same origin, so a relative fetch — no CORS to worry
+// about here. Best-effort: any failure (offline, store down) falls back to
+// the long self-contained link below, same as before this existed.
+async function shorten(fragment) {
+    try {
+        const res = await fetch('/api/s', { method: 'POST', body: fragment });
+        if (!res.ok) return null;
+        const id = (await res.text()).trim();
+        return id ? `${location.href.split('#')[0]}s/${id}` : null;
+    } catch {
+        return null;
+    }
+}
+
+// QR byte mode at LOW ecc tops out here. Only relevant to the long fallback
+// link: a short link is always well under this, and a long link past it is
+// still a perfectly good link, it just cannot be photographed.
 const QR_BYTE_CAPACITY = 2953;
 
 // ---- de1app .tcl profiles ---------------------------------------------
@@ -1703,12 +1722,14 @@ function drawQr(url) {
 // A link the reader can pass on. Best-effort: if the payload cannot be built,
 // the profile is still on screen and still downloadable.
 async function renderShare(profile, payloadText) {
-    let url;
+    let fragment;
     try {
-        url = `${location.href.split('#')[0]}#${await encodePayload(payloadText)}`;
+        fragment = await encodePayload(payloadText);
     } catch {
         return;
     }
+    const short = await shorten(fragment);
+    const url = short ?? `${location.href.split('#')[0]}#${fragment}`;
     drawQr(url);
     const btn = $('share-link');
     const box = $('share-url');
@@ -1716,8 +1737,8 @@ async function renderShare(profile, payloadText) {
     const canShare = typeof navigator.share === 'function';
     btn.textContent = canShare ? t('Share this profile') : t('Copy share link');
     $('share-note').textContent = url.length > QR_BYTE_CAPACITY
-        ? t('The profile rides inside the link itself — nothing is uploaded. This one is too long to fit in a QR code, but the link works anywhere.')
-        : t('Point a camera at the code, or send the link. The profile rides inside the link itself — nothing is uploaded, and whoever opens it sees exactly this.');
+        ? t('This one is too long to fit in a QR code, but the link works anywhere.')
+        : t('Point a camera at the code, or send the link.');
     btn.onclick = async () => {
         try {
             if (canShare) await navigator.share({ title: profile.title || t('Espresso profile'), url });

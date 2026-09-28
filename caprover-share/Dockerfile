@@ -1,21 +1,13 @@
-# Receiver page for QR-shared profiles, as a static site.
+# Receiver page + short-link store for QR-shared profiles.
 #
-# There is no backend by design: the profile travels inside the QR code, in the
-# URL fragment, which browsers never send to the server. This image serves one
-# HTML file that decodes it in the browser. Nothing is uploaded, nothing is
-# stored, and there is no state to back up.
-FROM nginx:alpine
-
-# Served as index.html, not share.html, so links read
-# https://share.example.com/#payload — eleven characters shorter than
-# /share.html#payload, which is eleven fewer bytes of QR code.
-COPY share.html /usr/share/nginx/html/index.html
-
-# The decoder must never be stale: a cached old copy would fail to read links a
-# newer sender produces. The file is a few KB, so revalidating every load costs
-# nothing. Written at http level, where add_header is valid, so the stock
-# default.conf server block is left alone.
-RUN printf 'add_header Cache-Control "no-cache";\n' > /etc/nginx/conf.d/cache.conf \
-    && nginx -t
-
+# The profile still travels inside the fragment, which browsers never send to
+# the server, so docs/share.html decodes it entirely client-side — that part
+# is unchanged. server.js only adds a thin layer on top: POST the fragment
+# once at /api/s, get a short id back, and GET /s/<id> 302s to /#<fragment> so
+# a link is short enough to paste into a chat instead of only scannable. See
+# server.js's header for what that store does and does not guarantee.
+FROM node:20-alpine
+WORKDIR /app
+COPY server.js share.html ./
 EXPOSE 80
+CMD ["node", "server.js"]

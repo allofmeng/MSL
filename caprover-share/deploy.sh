@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Stage and deploy the receiver page to CapRover.
+# Stage and deploy the receiver page + short-link store to CapRover.
 #
 # share.html is NOT kept in this folder: docs/share.html is the single copy, and
 # GitHub Pages serves that same file. Staging it here at deploy time is what
-# stops the two hosts from drifting apart.
+# stops the two hosts from drifting apart. server.js (the short-link store,
+# see its own header) lives in this folder since it is CapRover-only — GitHub
+# Pages can't run it, so a link opened there falls back to the long form.
 #
 # Usage: ./deploy.sh [app-name]        (default app name: share)
 set -euo pipefail
@@ -16,7 +18,7 @@ page="$here/../docs/share.html"
 
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
-cp "$here/Dockerfile" "$here/captain-definition" "$stage/"
+cp "$here/Dockerfile" "$here/captain-definition" "$here/server.js" "$stage/"
 cp "$page" "$stage/share.html"
 
 tarball="$here/deploy.tar"

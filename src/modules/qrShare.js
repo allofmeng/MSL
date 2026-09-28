@@ -1,22 +1,25 @@
 import { logger } from './logger.js';
 import { loadQrCodeGen } from './vendor-loader.js';
 
-// Share a profile as a QR code.
+// Share a profile as a QR code + short link.
 //
-// The QR carries a URL whose FRAGMENT is the profile itself, gzipped and
-// base64url'd: `https://…/share.html#H4sIA…`. Two consequences worth stating,
-// because they are the whole reason for this shape:
+// The profile itself still travels gzipped and base64url'd, same as always.
+// What changed: instead of putting that payload straight in the URL fragment
+// (`https://…/#H4sIA…`, 700-2000+ characters — fine for a camera, useless
+// pasted into a chat), it is POSTed once to the caprover-share app's
+// short-link store (caprover-share/server.js) and the `.../s/<id>` that comes
+// back is what gets QR-coded and copied. See that file's header for what the
+// store does and does not guarantee (no auth, no expiry).
 //
-//   - A phone's camera app opens a link. It can do nothing with raw JSON, which
-//     is what an earlier version of this file encoded — that produced a wall of
-//     text on the scanner and nothing else.
-//   - A fragment is never sent to the server, so the receiving page is a static
-//     decoder (docs/share.html, published to GitHub Pages). No upload service,
-//     no token on this tablet, nothing stored anywhere.
+// If the store is unreachable (offline, CORS, deploy down), buildShareUrl
+// falls back to the old self-contained long link — still a fragment the
+// decoder (docs/share.html) reads with no server involved at all, just capped
+// by the QR byte budget below. `notes` is dropped only in that fallback, and
+// only if the profile still doesn't fit.
 //
 // Profiles compress hard — every profile bundled with this skin lands between
-// 448 and 1992 bytes against a 2953-byte QR budget — so the payload fits with
-// room to spare. `notes` is dropped only if a particular profile overruns.
+// 448 and 1992 bytes against a 2953-byte QR budget — so the fallback link
+// fits with room to spare in the common case.
 //
 // `qrcodegen` is a vendored global (src/vendor/qrcodegen.js, classic <script>,
 // not a module) — see that file's header for provenance. Not imported: a
@@ -105,26 +108,46 @@ async function encodeBody(text) {
     }
 }
 
+// POSTs the fragment to the short-link store and returns `.../s/<id>`, or
+// null on any failure — offline, CORS, store down. A nicety the feature
+// should degrade past, never break on.
+async function shorten(fragment) {
+    try {
+        const res = await fetch(`${SHARE_BASE_URL}api/s`, { method: 'POST', body: fragment });
+        if (!res.ok) return null;
+        const id = (await res.text()).trim();
+        return id ? `${SHARE_BASE_URL}s/${id}` : null;
+    } catch (e) {
+        logger.warn('Short link store unreachable, using the long link:', e);
+        return null;
+    }
+}
+
 /**
  * Build the share URL for a profile.
  * @returns {Promise<{url: string, notesDropped: boolean}|null>} null when even
- *          the trimmed profile will not fit in a QR code.
+ *          the trimmed profile will not fit in a QR code (only reachable when
+ *          the short-link store is also unreachable).
  */
 export async function buildShareUrl(profile) {
     const attempt = async (body) => {
-        const url = `${SHARE_BASE_URL}#${toBase64Url(await encodeBody(JSON.stringify(body)))}`;
-        return url.length <= QR_BYTE_CAPACITY ? url : null;
+        const fragment = toBase64Url(await encodeBody(JSON.stringify(body)));
+        const short = await shorten(fragment);
+        if (short) return { url: short, notesDropped: false };
+
+        const long = `${SHARE_BASE_URL}#${fragment}`;
+        return long.length <= QR_BYTE_CAPACITY ? { url: long, notesDropped: false } : null;
     };
 
     const full = await attempt(profile);
-    if (full) return { url: full, notesDropped: false };
+    if (full) return full;
 
     // Notes are the one field that is usually large and never needed to pull the
     // shot, so they are the only thing dropped before giving up.
     if (!profile.notes) return null;
     const { notes, ...trimmed } = profile;
     const short = await attempt(trimmed);
-    return short ? { url: short, notesDropped: true } : null;
+    return short ? { ...short, notesDropped: true } : null;
 }
 
 // The link currently on screen, for the Copy button.
@@ -166,12 +189,14 @@ export async function showProfileQrModal(profile) {
     show(canvas, true);
     show(tooBigEl, false);
     show(warningEl, result.notesDropped);
-    // The full link runs 700-2000 characters, so printing it was useless: nobody
-    // reads that out, and it pushed the modal off the screen. Name the host so
-    // the scan is not a leap of faith, and put the link on the clipboard for
-    // sending through a chat app on this tablet instead of by camera.
+    // A shortened link is short enough to print in full; the long fallback
+    // (700-2000 characters) is not — nobody reads that out, and it pushed the
+    // modal off the screen — so that case still shows just the host. Either
+    // way the link is also on the clipboard for sending through a chat app on
+    // this tablet instead of by camera.
     if (hostEl) {
-        hostEl.textContent = new URL(result.url).host;
+        const shareUrl = new URL(result.url);
+        hostEl.textContent = shareUrl.pathname.startsWith('/s/') ? result.url : shareUrl.host;
         show(hostEl, true);
     }
     show(copyBtn, true);
