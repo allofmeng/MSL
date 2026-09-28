@@ -1,0 +1,75 @@
+<div id="scaled-content">
+<div id="shot-overview-page" class="bg-base-200 overflow-hidden flex-grow flex flex-col w-[1920px] h-full" role="dialog" aria-labelledby="shot-overview-title">
+    <div id="subpage-header" class="flex justify-between items-center p-6 border-b border-base-300 bg-[var(--box-color)] h-[150px]">
+        <h1 id="shot-overview-title" class="text-[37.5px] font-bold text-[var(--text-primary)] no-select" data-i18n-key="Shot history">Shot history</h1>
+        <div class="flex items-center gap-[22.5px]">
+            <!-- href is set by shot_overview.js from API_BASE_URL (the Decaid host the skin talks to), not hardcoded localhost -->
+            <a id="shot-overview-all-shots-link" class="settings-button flex justify-center items-center min-h-0 w-[240px] h-[82.5px] whitespace-nowrap text-[var(--text-primary)] rounded-[67.5px] font-bold text-[24px] uppercase" data-i18n-key="All shots">ALL SHOTS</a>
+            <button id="shot-overview-done-btn" class="flex justify-center items-center bg-[var(--mimoja-blue)] text-white min-h-0 w-[240px] h-[82.5px] whitespace-nowrap font-bold text-[24px] rounded-[67.5px] uppercase" data-i18n-key="Done">DONE</button>
+        </div>
+    </div>
+
+    <div id="shot-overview-body" class="flex">
+        <div id="shot-overview-left" class="flex flex-col p-6">
+            <div id="shot-overview-empty" class="hidden so-placeholder">
+                <p class="text-[28px] text-[var(--text-primary)]" data-i18n-key="No shots yet. Pull a shot and it will show up here.">No shots yet. Pull a shot and it will show up here.</p>
+            </div>
+            <div id="shot-overview-error" class="hidden so-placeholder">
+                <p class="text-[28px] text-[var(--text-primary)]" data-i18n-key="Couldn't load shots. Check the connection to Decaid in Settings.">Couldn't load shots. Check the connection to Decaid in Settings.</p>
+            </div>
+            <div id="shot-overview-content" class="hidden flex flex-col">
+                <div id="shot-overview-summary-row" class="flex justify-between items-center gap-6">
+                    <p id="shot-overview-summary" class="so-summary text-[var(--text-primary)] no-select"></p>
+                    <div id="shot-overview-range" class="flex overflow-hidden rounded-full border border-[var(--border-color)] no-select" role="group" aria-label="Time range">
+                        <button type="button" class="so-range-btn h-[72px] px-6 flex items-center justify-center text-[24px] font-semibold text-[var(--text-primary)] bg-transparent cursor-pointer" data-range="7" data-i18n-key="7 days" aria-pressed="false">7 days</button>
+                        <button type="button" class="so-range-btn h-[72px] px-6 flex items-center justify-center text-[24px] font-semibold text-[var(--text-primary)] bg-transparent cursor-pointer border-l border-[var(--border-color)]" data-range="30" data-i18n-key="30 days" aria-pressed="false">30 days</button>
+                        <button type="button" class="so-range-btn h-[72px] px-6 flex items-center justify-center text-[24px] font-semibold bg-[var(--mimoja-blue)] text-white cursor-pointer border-l border-[var(--border-color)]" data-range="all" data-i18n-key="All" aria-pressed="true">All</button>
+                    </div>
+                </div>
+
+                <div id="shot-overview-stats" class="so-stats-row"></div>
+
+                <div id="shot-overview-plot-section">
+                    <div id="shot-overview-axis-controls" class="so-axis-controls">
+                        <div class="so-axis-field">
+                            <label for="shot-overview-x-axis" class="no-select" data-i18n-key="X axis">X axis</label>
+                            <select id="shot-overview-x-axis" class="so-axis-select"></select>
+                        </div>
+                        <div class="so-axis-field">
+                            <label for="shot-overview-y-axis" class="no-select" data-i18n-key="Y axis">Y axis</label>
+                            <select id="shot-overview-y-axis" class="so-axis-select"></select>
+                        </div>
+                    </div>
+
+                    <div id="shot-overview-plot-wrap">
+                        <svg id="shot-overview-plot" class="so-ratio-plot" viewBox="0 0 1000 600" role="img" aria-label="Shot plot"></svg>
+                        <p id="shot-overview-plot-empty" class="so-plot-empty hidden no-select"></p>
+                        <div id="shot-overview-callout" class="so-callout hidden"></div>
+                    </div>
+                    <p id="shot-overview-plot-caption" class="so-plot-caption text-[var(--data-card-title-text-color)] no-select"></p>
+                </div>
+            </div>
+        </div>
+
+        <div id="shot-overview-right" class="overflow-y-auto bg-[var(--box-color)] p-6">
+            <div id="shot-overview-beans-section" class="so-section hidden">
+                <h2 class="so-section-title no-select" data-i18n-key="Beans">Beans</h2>
+                <div id="shot-overview-beans-list"></div>
+            </div>
+            <div id="shot-overview-grinders-section" class="so-section hidden">
+                <h2 class="so-section-title no-select" data-i18n-key="Grinder">Grinder</h2>
+                <div id="shot-overview-grinders-list"></div>
+            </div>
+            <div id="shot-overview-profiles-section" class="so-section hidden">
+                <h2 class="so-section-title no-select" data-i18n-key="Profiles">Profiles</h2>
+                <div id="shot-overview-profiles-list"></div>
+            </div>
+            <div id="shot-overview-steam-section" class="so-section hidden">
+                <h2 class="so-section-title no-select" data-i18n-key="Steam">Steam</h2>
+                <p class="so-section-note no-select" data-i18n-key="Steam settings when each shot was pulled">Steam settings when each shot was pulled</p>
+                <div id="shot-overview-steam-value" class="so-steam-value"></div>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
