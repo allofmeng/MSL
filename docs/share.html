@@ -116,9 +116,7 @@
     <!-- de1app reads the two formats from two different folders and does not
          look outside them, so naming the path is the difference between a
          profile that appears in the list and one that silently does not. -->
-    <p id="actions-hint" class="hint">Not on the same device as Decaid? Download it, then import in your skin:
-       <strong>Profiles → upload</strong>. Copying it in by hand instead? A <code>.json</code> profile goes in
-       <code>de1plus/profiles_v2</code>. Nothing leaves this page unless you tap "Send to Decaid".</p>
+    <p id="actions-hint" class="hint">Not on the same device as Decaid? Download it, then import in your skin: <strong>Profiles → upload</strong>. Copying it in by hand instead? A <code>.json</code> profile goes in <code>de1plus/profiles_v2</code>. Nothing leaves this page unless you tap "Send to Decaid".</p>
   </div>
 
   <div id="share" class="card" hidden>
@@ -131,8 +129,7 @@
 
   <div id="upload" class="card" hidden>
     <h2>Open a profile from this device</h2>
-    <p class="hint" style="margin:0 2px 14px">A v2 <code>.json</code> profile, or a de1app <code>.tcl</code> profile
-       — no skin needed. The file is read in your browser and never leaves it.</p>
+    <p class="hint" style="margin:0 2px 14px">A v2 <code>.json</code> profile, or a de1app <code>.tcl</code> profile — no skin needed. The file is read in your browser and never leaves it.</p>
     <label class="btn" for="file">Upload profile</label>
     <input id="file" type="file" accept=".json,.tcl,application/json,text/plain" hidden>
   </div>
@@ -998,6 +995,161 @@ var qrcodegen;
 // JSON is also accepted, so a sender whose WebView lacks CompressionStream can
 // still produce a working link.
 
+// ---- i18n --------------------------------------------------------------
+// This page has no CSP allowance to fetch anything (see the meta tag above),
+// so unlike src/modules/i18n.js it cannot pull the skin's translation CSV —
+// every string this page can show has to ship inline, in this one file.
+// English is the key, same convention as the rest of MSL; a locale with no
+// entry (or no entry for a given key) falls through to the English text.
+// Auto-detected from the browser only — no switcher — since a stranger
+// opening a scanned link has no page chrome to find one in.
+function detectLang() {
+    const tags = (navigator.languages?.length ? navigator.languages : [navigator.language || 'en'])
+        .map((tag) => tag.toLowerCase());
+    for (const tag of tags) {
+        if (tag.startsWith('zh')) {
+            return /-(tw|hk|mo)\b|hant/.test(tag) ? 'zh-hant' : 'zh-hans';
+        }
+    }
+    return 'en';
+}
+const LANG = detectLang();
+
+const TRANSLATIONS = {
+    'zh-hans': {
+        'Shared espresso profile': '已分享的意式咖啡配置文件',
+        'Share it': '分享',
+        'Send to Decaid on this device': '发送到本机上的 Decaid',
+        'Sending…': '发送中…',
+        'Sent to Decaid': '已发送到 Decaid',
+        'Saved — find it under Profiles in your skin.': '已保存——在你的 skin 的“配置文件”里查看。',
+        "Could not reach Decaid on this device — make sure it's running here, then try again. ({0})":
+            '无法连接到本机上的 Decaid——请确认它正在此设备上运行，然后重试。（{0}）',
+        'Decaid rejected the profile (HTTP {0}).': 'Decaid 拒绝了该配置文件（HTTP {0}）。',
+        'Download profile (.json)': '下载配置文件（.json）',
+        'Download original (.tcl)': '下载原始文件（.tcl）',
+        'Copy JSON': '复制 JSON',
+        'Copied': '已复制',
+        'Copy failed — long-press the Download button instead': '复制失败——请改用长按下载按钮',
+        'Not on the same device as Decaid? Download it, then import in your skin: <strong>Profiles → upload</strong>. Copying it in by hand instead? A <code>.json</code> profile goes in <code>de1plus/profiles_v2</code>. Nothing leaves this page unless you tap "Send to Decaid".':
+            '不在运行 Decaid 的这台设备上？下载后在你的 skin 里导入：<strong>配置文件 → 上传</strong>。想手动复制？<code>.json</code> 配置文件放在 <code>de1plus/profiles_v2</code>。除非你点击"发送到 Decaid"，本页面不会发送任何内容。',
+        '"Send to Decaid" always sends the <code>.json</code> conversion. Downloading instead: <code>.json</code> for a v2 skin, <code>.tcl</code> for de1app. Copying by hand: <code>.tcl</code> → <code>de1plus/profiles</code>, <code>.json</code> → <code>de1plus/profiles_v2</code>.':
+            '"发送到 Decaid" 始终发送转换后的 <code>.json</code>。下载的话：v2 skin 用 <code>.json</code>，de1app 用 <code>.tcl</code>。手动复制：<code>.tcl</code> → <code>de1plus/profiles</code>，<code>.json</code> → <code>de1plus/profiles_v2</code>。',
+        'Open a profile from this device': '从本机打开配置文件',
+        'A v2 <code>.json</code> profile, or a de1app <code>.tcl</code> profile — no skin needed. The file is read in your browser and never leaves it.':
+            '一个 v2 的 <code>.json</code> 配置文件，或 de1app 的 <code>.tcl</code> 配置文件——不需要 skin。文件在你的浏览器中读取，绝不会离开浏览器。',
+        'Upload profile': '上传配置文件',
+        'Step': '步骤',
+        'Target': '目标',
+        'Temp': '温度',
+        'Time': '时间',
+        'Steps': '步骤',
+        'Yield': '液重',
+        'Volume': '容量',
+        'Total time': '总时间',
+        'Beverage': '饮品',
+        'by ': '作者：',
+        'Share this profile': '分享此配置文件',
+        'Copy share link': '复制分享链接',
+        'Link copied': '链接已复制',
+        'The profile rides inside the link itself — nothing is uploaded. This one is too long to fit in a QR code, but the link works anywhere.':
+            '配置文件本身就藏在链接里——不会上传任何内容。这个链接太长，放不进二维码，但链接本身在任何地方都能用。',
+        'Point a camera at the code, or send the link. The profile rides inside the link itself — nothing is uploaded, and whoever opens it sees exactly this.':
+            '用相机扫码，或直接发送链接。配置文件本身就藏在链接里——不会上传任何内容，打开链接的人看到的就是你现在看到的这一切。',
+        'That link does not hold a profile — it unpacks to far more data than one could be.':
+            '这个链接里没有配置文件——它解压出来的数据远超一个配置文件该有的大小。',
+        'That link is damaged — it looks cut short. Scan the QR code again.': '这个链接已损坏——看起来被截断了。请重新扫描二维码。',
+        'That link does not hold a profile — it carries far more data than one could be.':
+            '这个链接里没有配置文件——它携带的数据远超一个配置文件该有的大小。',
+        'This browser cannot read compressed links. Try a newer browser.': '此浏览器无法读取压缩后的链接，请换用较新的浏览器。',
+        'That link': '这个链接',
+        'That file': '这个文件',
+        '{0} does not contain an espresso profile.': '{0}中不包含意式咖啡配置文件。',
+        'That .tcl file is not an espresso profile — it has no advanced_shot frames.':
+            '这个 .tcl 文件不是意式咖啡配置文件——里面没有 advanced_shot 帧数据。',
+        'That .tcl profile has no readable steps.': '这个 .tcl 配置文件没有可读取的步骤。',
+        'Unknown beverage type "{0}" — treated as espresso.': '未知的饮品类型 “{0}”——已当作意式咖啡处理。',
+        'This was a simple (slider) de1app profile. Its steps are the frames stored in the file, which de1app does not always keep in step with the sliders — check them before pulling a shot.':
+            '这是一个简易（滑块式）de1app 配置文件。这里显示的步骤是文件里存的帧数据，de1app 不一定会让它和滑块保持同步——萃取前请先核对一遍。',
+        '{0} is far too large to be a profile.': '{0} 太大了，不可能是一个配置文件。',
+        'That file could not be read.': '这个文件无法读取。',
+        'That link is damaged — the profile could not be read.': '这个链接已损坏——无法读取配置文件。',
+        'Untitled profile': '未命名配置文件',
+        'Espresso profile': '意式咖啡配置文件',
+    },
+    'zh-hant': {
+        'Shared espresso profile': '已分享的義式咖啡設定檔',
+        'Share it': '分享',
+        'Send to Decaid on this device': '傳送到本機上的 Decaid',
+        'Sending…': '傳送中…',
+        'Sent to Decaid': '已傳送到 Decaid',
+        'Saved — find it under Profiles in your skin.': '已儲存——在你的 skin 的「設定檔」中查看。',
+        "Could not reach Decaid on this device — make sure it's running here, then try again. ({0})":
+            '無法連線到本機上的 Decaid——請確認它正在此裝置上執行，然後重試。（{0}）',
+        'Decaid rejected the profile (HTTP {0}).': 'Decaid 拒絕了此設定檔（HTTP {0}）。',
+        'Download profile (.json)': '下載設定檔（.json）',
+        'Download original (.tcl)': '下載原始檔（.tcl）',
+        'Copy JSON': '複製 JSON',
+        'Copied': '已複製',
+        'Copy failed — long-press the Download button instead': '複製失敗——請改用長按下載按鈕',
+        'Not on the same device as Decaid? Download it, then import in your skin: <strong>Profiles → upload</strong>. Copying it in by hand instead? A <code>.json</code> profile goes in <code>de1plus/profiles_v2</code>. Nothing leaves this page unless you tap "Send to Decaid".':
+            '不在執行 Decaid 的這台裝置上？下載後在你的 skin 中匯入：<strong>設定檔 → 上傳</strong>。想手動複製？<code>.json</code> 設定檔放在 <code>de1plus/profiles_v2</code>。除非你點擊「傳送到 Decaid」，本頁面不會傳送任何內容。',
+        '"Send to Decaid" always sends the <code>.json</code> conversion. Downloading instead: <code>.json</code> for a v2 skin, <code>.tcl</code> for de1app. Copying by hand: <code>.tcl</code> → <code>de1plus/profiles</code>, <code>.json</code> → <code>de1plus/profiles_v2</code>.':
+            '「傳送到 Decaid」永遠傳送轉換後的 <code>.json</code>。下載的話：v2 skin 用 <code>.json</code>，de1app 用 <code>.tcl</code>。手動複製：<code>.tcl</code> → <code>de1plus/profiles</code>，<code>.json</code> → <code>de1plus/profiles_v2</code>。',
+        'Open a profile from this device': '從本機開啟設定檔',
+        'A v2 <code>.json</code> profile, or a de1app <code>.tcl</code> profile — no skin needed. The file is read in your browser and never leaves it.':
+            '一個 v2 的 <code>.json</code> 設定檔，或 de1app 的 <code>.tcl</code> 設定檔——不需要 skin。檔案在你的瀏覽器中讀取，絕不會離開瀏覽器。',
+        'Upload profile': '上傳設定檔',
+        'Step': '步驟',
+        'Target': '目標',
+        'Temp': '溫度',
+        'Time': '時間',
+        'Steps': '步驟',
+        'Yield': '液重',
+        'Volume': '容量',
+        'Total time': '總時間',
+        'Beverage': '飲品',
+        'by ': '作者：',
+        'Share this profile': '分享此設定檔',
+        'Copy share link': '複製分享連結',
+        'Link copied': '連結已複製',
+        'The profile rides inside the link itself — nothing is uploaded. This one is too long to fit in a QR code, but the link works anywhere.':
+            '設定檔本身就藏在連結裡——不會上傳任何內容。這個連結太長，放不進 QR code，但連結本身在任何地方都能用。',
+        'Point a camera at the code, or send the link. The profile rides inside the link itself — nothing is uploaded, and whoever opens it sees exactly this.':
+            '用相機掃描，或直接傳送連結。設定檔本身就藏在連結裡——不會上傳任何內容，開啟連結的人看到的就是你現在看到的這一切。',
+        'That link does not hold a profile — it unpacks to far more data than one could be.':
+            '這個連結裡沒有設定檔——它解壓出來的資料遠超一個設定檔該有的大小。',
+        'That link is damaged — it looks cut short. Scan the QR code again.': '這個連結已損壞——看起來被截斷了。請重新掃描 QR code。',
+        'That link does not hold a profile — it carries far more data than one could be.':
+            '這個連結裡沒有設定檔——它攜帶的資料遠超一個設定檔該有的大小。',
+        'This browser cannot read compressed links. Try a newer browser.': '此瀏覽器無法讀取壓縮後的連結，請改用較新的瀏覽器。',
+        'That link': '這個連結',
+        'That file': '這個檔案',
+        '{0} does not contain an espresso profile.': '{0}中不包含義式咖啡設定檔。',
+        'That .tcl file is not an espresso profile — it has no advanced_shot frames.':
+            '這個 .tcl 檔案不是義式咖啡設定檔——裡面沒有 advanced_shot 幀資料。',
+        'That .tcl profile has no readable steps.': '這個 .tcl 設定檔沒有可讀取的步驟。',
+        'Unknown beverage type "{0}" — treated as espresso.': '未知的飲品類型「{0}」——已當作義式咖啡處理。',
+        'This was a simple (slider) de1app profile. Its steps are the frames stored in the file, which de1app does not always keep in step with the sliders — check them before pulling a shot.':
+            '這是一個簡易（滑桿式）de1app 設定檔。這裡顯示的步驟是檔案裡存的幀資料，de1app 不一定會讓它和滑桿保持同步——萃取前請先核對一遍。',
+        '{0} is far too large to be a profile.': '{0} 太大了，不可能是一個設定檔。',
+        'That file could not be read.': '這個檔案無法讀取。',
+        'That link is damaged — the profile could not be read.': '這個連結已損壞——無法讀取設定檔。',
+        'Untitled profile': '未命名設定檔',
+        'Espresso profile': '義式咖啡設定檔',
+    },
+};
+
+// t('English key') looks up the plain string; tf(key, ...args) additionally
+// substitutes {0}, {1}, … with args, for the handful of messages that carry a
+// filename, HTTP status or similar runtime value the dictionary can't know.
+function t(key) {
+    return TRANSLATIONS[LANG]?.[key] ?? key;
+}
+function tf(key, ...args) {
+    return t(key).replace(/\{(\d)\}/g, (_, i) => args[i]);
+}
+
 function fromBase64Url(text) {
     const b64 = text.replace(/-/g, '+').replace(/_/g, '/');
     const binary = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='));
@@ -1030,11 +1182,11 @@ async function gunzip(bytes) {
         }
     } catch (e) {
         if (e instanceof RangeError) {
-            throw new Error('That link does not hold a profile — it unpacks to far more data than one could be.');
+            throw new Error(t('That link does not hold a profile — it unpacks to far more data than one could be.'));
         }
         // A truncated or corrupt gzip stream comes back as TypeError "Failed to
         // fetch", which tells the reader nothing. Name the actual problem.
-        throw new Error('That link is damaged — it looks cut short. Scan the QR code again.');
+        throw new Error(t('That link is damaged — it looks cut short. Scan the QR code again.'));
     }
     return new TextDecoder().decode(await new Blob(chunks).arrayBuffer());
 }
@@ -1045,14 +1197,14 @@ async function gunzip(bytes) {
 export async function decodePayload(fragment) {
     const bytes = fromBase64Url(fragment);
     if (bytes.length > MAX_PROFILE_BYTES) {
-        throw new Error('That link does not hold a profile — it carries far more data than one could be.');
+        throw new Error(t('That link does not hold a profile — it carries far more data than one could be.'));
     }
     const gzipped = bytes[0] === 0x1f && bytes[1] === 0x8b;
     if (gzipped && typeof DecompressionStream !== 'function') {
-        throw new Error('This browser cannot read compressed links. Try a newer browser.');
+        throw new Error(t('This browser cannot read compressed links. Try a newer browser.'));
     }
     const text = gzipped ? await gunzip(bytes) : new TextDecoder().decode(bytes);
-    return readProfileText(text, 'That link');
+    return readProfileText(text, t('That link'));
 }
 
 // A payload is either v2 JSON or a de1app .tcl file, and the sender's original
@@ -1081,7 +1233,7 @@ export function readProfileText(text, what) {
 export function asProfile(parsed, what) {
     const profile = parsed?.profile ?? parsed;
     if (!profile || typeof profile !== 'object' || !Array.isArray(profile.steps)) {
-        throw new Error(`${what} does not contain an espresso profile.`);
+        throw new Error(tf('{0} does not contain an espresso profile.', what));
     }
     return profile;
 }
@@ -1257,15 +1409,15 @@ function tclStep(frame) {
 export function tclToProfile(text) {
     const raw = parseTclDict(text);
     if (raw.advanced_shot === undefined) {
-        throw new Error('That .tcl file is not an espresso profile — it has no advanced_shot frames.');
+        throw new Error(t('That .tcl file is not an espresso profile — it has no advanced_shot frames.'));
     }
     const steps = splitTclList(raw.advanced_shot).map(tclStep).filter(Boolean);
-    if (!steps.length) throw new Error('That .tcl profile has no readable steps.');
+    if (!steps.length) throw new Error(t('That .tcl profile has no readable steps.'));
 
     const warnings = [];
     let beverage = BEVERAGE_ALIASES[raw.beverage_type] ?? raw.beverage_type ?? 'espresso';
     if (!BEVERAGE_TYPES.has(beverage)) {
-        warnings.push(`Unknown beverage type "${raw.beverage_type}" — treated as espresso.`);
+        warnings.push(tf('Unknown beverage type "{0}" — treated as espresso.', raw.beverage_type));
         beverage = 'espresso';
     }
     // de1app stores frames for its simple pressure/flow profiles too, but
@@ -1273,12 +1425,12 @@ export function tclToProfile(text) {
     // stored copy can be stale. Converting it is still the best this page can
     // do; saying so is the least it can do.
     if (raw.settings_profile_type === 'settings_2a' || raw.settings_profile_type === 'settings_2b') {
-        warnings.push('This was a simple (slider) de1app profile. Its steps are the frames stored in the file, which de1app does not always keep in step with the sliders — check them before pulling a shot.');
+        warnings.push(t('This was a simple (slider) de1app profile. Its steps are the frames stored in the file, which de1app does not always keep in step with the sliders — check them before pulling a shot.'));
     }
 
     const profile = {
         version: '2',
-        title: raw.profile_title || 'Untitled profile',
+        title: raw.profile_title || t('Untitled profile'),
         author: raw.author || '',
         notes: raw.profile_notes || '',
         beverage_type: beverage,
@@ -1327,7 +1479,7 @@ async function sendToDecaid(profile) {
     const btn = $('send-decaid');
     const status = $('send-decaid-status');
     btn.disabled = true;
-    btn.textContent = 'Sending…';
+    btn.textContent = t('Sending…');
     status.hidden = true;
     let lastError = null;
     for (const base of DECAID_HOSTS) {
@@ -1337,9 +1489,9 @@ async function sendToDecaid(profile) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ profile }),
             });
-            if (!res.ok) throw new Error(`Decaid rejected the profile (HTTP ${res.status}).`);
-            btn.textContent = 'Sent to Decaid';
-            status.textContent = 'Saved — find it under Profiles in your skin.';
+            if (!res.ok) throw new Error(tf('Decaid rejected the profile (HTTP {0}).', res.status));
+            btn.textContent = t('Sent to Decaid');
+            status.textContent = t('Saved — find it under Profiles in your skin.');
             status.hidden = false;
             return;
         } catch (e) {
@@ -1347,11 +1499,32 @@ async function sendToDecaid(profile) {
         }
     }
     btn.disabled = false;
-    btn.textContent = 'Send to Decaid on this device';
-    status.textContent = `Could not reach Decaid on this device — make sure it's running here, `
-        + `then try again. (${lastError?.message || lastError})`;
+    btn.textContent = t('Send to Decaid on this device');
+    status.textContent = tf("Could not reach Decaid on this device — make sure it's running here, then try again. ({0})",
+        lastError?.message || lastError);
     status.hidden = false;
 }
+
+// Static markup translated once, in place, before anything captures its text
+// (the DEFAULT_ACTIONS_HINT snapshot right below) or the reader sees it.
+function translateStaticUI() {
+    if (LANG === 'en') return;
+    document.documentElement.lang = LANG === 'zh-hant' ? 'zh-Hant' : 'zh-Hans';
+    document.title = t('Shared espresso profile');
+    $('share').querySelector('h2').textContent = t('Share it');
+    $('send-decaid').textContent = t('Send to Decaid on this device');
+    $('download').textContent = t('Download profile (.json)');
+    $('download-tcl').textContent = t('Download original (.tcl)');
+    $('copy').textContent = t('Copy JSON');
+    $('actions-hint').innerHTML = t($('actions-hint').innerHTML);
+    $('upload').querySelector('h2').textContent = t('Open a profile from this device');
+    $('upload').querySelector('p').innerHTML = t($('upload').querySelector('p').innerHTML);
+    $('upload').querySelector('label').textContent = t('Upload profile');
+    const headers = document.querySelectorAll('#steps-card th');
+    ['#', 'Step', 'Target', 'Temp', 'Time'].forEach((key, i) => { headers[i].textContent = t(key); });
+    $('share-link').textContent = t('Copy share link');
+}
+translateStaticUI();
 
 let downloadUrl = null;
 let tclDownloadUrl = null;
@@ -1372,9 +1545,9 @@ function reset() {
     $('author').hidden = false;
     $('share-url').hidden = true;
     $('qr').hidden = true;
-    $('copy').textContent = 'Copy JSON';
+    $('copy').textContent = t('Copy JSON');
     $('send-decaid').disabled = false;
-    $('send-decaid').textContent = 'Send to Decaid on this device';
+    $('send-decaid').textContent = t('Send to Decaid on this device');
     $('send-decaid-status').hidden = true;
     $('download-tcl').hidden = true;
     $('actions-hint').innerHTML = DEFAULT_ACTIONS_HINT;
@@ -1390,20 +1563,20 @@ function showUpload(message) {
 
 function render(profile, warnings = [], tcl = null) {
     reset();
-    const title = String(profile.title || 'Untitled profile');
+    const title = String(profile.title || t('Untitled profile'));
     document.title = title;
     $('title').textContent = title;
-    if (profile.author) $('author').textContent = `by ${profile.author}`;
+    if (profile.author) $('author').textContent = `${t('by ')}${profile.author}`;
     else $('author').hidden = true;
 
     const dl = $('facts');
     const yieldG = num(profile.target_weight);
     const volume = num(profile.target_volume);
-    fact(dl, 'Steps', profile.steps.length);
-    fact(dl, 'Yield', yieldG ? `${yieldG} g` : null);
-    fact(dl, 'Volume', volume ? `${volume} mL` : null);
-    fact(dl, 'Total time', `${profile.steps.reduce((s, st) => s + (num(st.seconds) || 0), 0)} s`);
-    fact(dl, 'Beverage', profile.beverage_type || null);
+    fact(dl, t('Steps'), profile.steps.length);
+    fact(dl, t('Yield'), yieldG ? `${yieldG} g` : null);
+    fact(dl, t('Volume'), volume ? `${volume} mL` : null);
+    fact(dl, t('Total time'), `${profile.steps.reduce((s, st) => s + (num(st.seconds) || 0), 0)} s`);
+    fact(dl, t('Beverage'), profile.beverage_type || null);
 
     if (profile.notes) {
         $('notes').textContent = profile.notes;
@@ -1454,10 +1627,10 @@ function render(profile, warnings = [], tcl = null) {
         tclLink.href = tclDownloadUrl;
         tclLink.download = `${stem}.tcl`;
         tclLink.hidden = false;
-        $('actions-hint').innerHTML = '"Send to Decaid" always sends the <code>.json</code> conversion. '
+        $('actions-hint').innerHTML = t('"Send to Decaid" always sends the <code>.json</code> conversion. '
             + 'Downloading instead: <code>.json</code> for a v2 skin, <code>.tcl</code> for de1app. '
             + 'Copying by hand: <code>.tcl</code> → <code>de1plus/profiles</code>, '
-            + '<code>.json</code> → <code>de1plus/profiles_v2</code>.';
+            + '<code>.json</code> → <code>de1plus/profiles_v2</code>.');
     }
 
     // Fallback for the browsers that ignore `download` on a blob (older iOS).
@@ -1465,16 +1638,18 @@ function render(profile, warnings = [], tcl = null) {
     $('copy').onclick = async () => {
         try {
             await navigator.clipboard.writeText(json);
-            $('copy').textContent = 'Copied';
+            $('copy').textContent = t('Copied');
         } catch {
-            $('copy').textContent = 'Copy failed — long-press the Download button instead';
+            $('copy').textContent = t('Copy failed — long-press the Download button instead');
         }
     };
     $('send-decaid').onclick = () => sendToDecaid(profile);
     $('actions').hidden = false;
     $('upload').hidden = false;
-    // The .tcl travels on unchanged, so the next reader gets the same choice.
-    renderShare(profile, tcl ?? json);
+    // The .tcl travels on unchanged; JSON re-shares compact (not the indented
+    // `json` above) since every indent byte rides through the fragment/QR too —
+    // matches the encoding src/modules/qrShare.js already uses.
+    renderShare(profile, tcl ?? JSON.stringify(profile));
 }
 
 const QR_QUIET_ZONE = 4;   // modules of white border — the QR spec's minimum
@@ -1539,16 +1714,16 @@ async function renderShare(profile, payloadText) {
     const box = $('share-url');
     box.value = url;
     const canShare = typeof navigator.share === 'function';
-    btn.textContent = canShare ? 'Share this profile' : 'Copy share link';
+    btn.textContent = canShare ? t('Share this profile') : t('Copy share link');
     $('share-note').textContent = url.length > QR_BYTE_CAPACITY
-        ? 'The profile rides inside the link itself — nothing is uploaded. This one is too long to fit in a QR code, but the link works anywhere.'
-        : 'Point a camera at the code, or send the link. The profile rides inside the link itself — nothing is uploaded, and whoever opens it sees exactly this.';
+        ? t('The profile rides inside the link itself — nothing is uploaded. This one is too long to fit in a QR code, but the link works anywhere.')
+        : t('Point a camera at the code, or send the link. The profile rides inside the link itself — nothing is uploaded, and whoever opens it sees exactly this.');
     btn.onclick = async () => {
         try {
-            if (canShare) await navigator.share({ title: profile.title || 'Espresso profile', url });
+            if (canShare) await navigator.share({ title: profile.title || t('Espresso profile'), url });
             else {
                 await navigator.clipboard.writeText(url);
-                btn.textContent = 'Link copied';
+                btn.textContent = t('Link copied');
             }
         } catch {
             // navigator.share rejects on cancel too, so this is not necessarily
@@ -1567,7 +1742,7 @@ $('file').addEventListener('change', async (event) => {
     if (!file) return;
 
     if (file.size > MAX_PROFILE_BYTES) {
-        showUpload(`${file.name} is far too large to be a profile.`);
+        showUpload(tf('{0} is far too large to be a profile.', file.name));
         return;
     }
 
@@ -1575,7 +1750,7 @@ $('file').addEventListener('change', async (event) => {
     try {
         text = await file.text();
     } catch {
-        showUpload('That file could not be read.');
+        showUpload(t('That file could not be read.'));
         return;
     }
 
@@ -1585,7 +1760,7 @@ $('file').addEventListener('change', async (event) => {
     // but the file itself is kept — it is what the link carries and what the
     // .tcl download hands back.
     try {
-        const { profile, warnings, tcl } = readProfileText(text, 'That file');
+        const { profile, warnings, tcl } = readProfileText(text, t('That file'));
         render(profile, warnings, tcl);
     } catch (e) {
         showUpload(e.message);
@@ -1599,7 +1774,7 @@ if (!fragment) {
     decodePayload(fragment)
         .then(({ profile, warnings, tcl }) => render(profile, warnings, tcl))
         .catch((e) => {
-            showUpload(e instanceof SyntaxError ? 'That link is damaged — the profile could not be read.' : e.message);
+            showUpload(e instanceof SyntaxError ? t('That link is damaged — the profile could not be read.') : e.message);
         });
 }
 </script>
